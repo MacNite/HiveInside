@@ -1,0 +1,26 @@
+Ref,Component,Function,JLCPCB_Part,Qty,Unit_Price_USD
+U1,Ebyte E73-2G4M08S1C,nRF52840 MCU + BLE + antenna,C356849,1,5.52
+U2,ICS-43434,I2S MEMS microphone,C2836540,1,1.80
+U3,LIS2DH12TR,3-axis accelerometer (I2C),C110926,1,0.47
+U4,SHT40-AD1B-R3,Temperature + humidity (I2C),C2848306,1,1.20
+U5,LPS22HBTR,Barometric pressure (I2C),C94049,1,1.50
+Q1,SI2301CDS-T1-GE3,P-MOSFET mic power gate,C10487,1,0.05
+BT1,CR2477 holder SMD,Battery (1000 mAh),C70388,1,0.20
+J1,1x4 header 1.27mm,SWD programming port,C706393,1,0.10
+SW1,SMD tactile pushbutton,Pairing/identify/reset,C318884,1,0.03
+C1,100uF 6.3V electrolytic,Bulk buffer (BLE TX burst),C6974,1,0.05
+C2,100nF 0402,Decoupling U1,C14663,1,0.01
+C3,100nF 0402,Decoupling U2,C14663,1,0.01
+C4,100nF 0402,Decoupling U3,C14663,1,0.01
+C5,100nF 0402,Decoupling U4,C14663,1,0.01
+C6,100nF 0402,Decoupling U5,C14663,1,0.01
+C7,10uF 0402,LIS2DH12 extra decoupling,C19702,1,0.02
+C8,4.7uF 0402,LPS22HB extra decoupling,C19666,1,0.02
+C9,4.7uF 0402,nRF52840 DCCH DC/DC,C19666,1,0.02
+R1,4.7k 0402,I2C SDA pull-up,C25900,1,0.01
+R2,4.7k 0402,I2C SCL pull-up,C25900,1,0.01
+R3,100k 0402,ICS-43434 SD pull-down,C25803,1,0.01
+R4,10k 0402,MOSFET gate pull-up,C25744,1,0.01
+R5,100R 0402,I2S SCK series guard,C25076,1,0.01
+R6,100R 0402,I2S WS series guard,C25076,1,0.01
+R7,100R 0402,I2S SD series guard,C25076,1,0.01

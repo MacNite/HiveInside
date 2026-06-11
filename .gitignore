@@ -1,0 +1,21 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Build artifacts
+*.uf2
+*.hex
+*.bin
+*.elf
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# KiCad backups
+*-bak
+*.bak
+fp-info-cache
