@@ -1,3 +1,7 @@
+# As of 12.06.2026 development in this repository is halted in favor of using a [HolyIot 25015](https://de.aliexpress.com/item/1005010474941392.html?spm=a2g0o.order_list.order_list_main.4.6c975c5frpXTaz&gatewayAdapt=glo2deu). This devices currently lacks the sound sensor. A different solution for this is currently beeing developed
+
+
+
 # HiveInside
 
 A stand-alone, battery-powered **in-hive environmental and acoustic sensor** for
