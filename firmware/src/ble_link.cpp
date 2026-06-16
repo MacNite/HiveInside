@@ -20,7 +20,8 @@ static constexpr uint8_t OBJ_PACKET_ID = 0x00; // uint8
 static constexpr uint8_t OBJ_BATTERY   = 0x01; // uint8  %
 static constexpr uint8_t OBJ_TEMP      = 0x02; // sint16 0.01 °C
 static constexpr uint8_t OBJ_HUMIDITY  = 0x03; // uint16 0.01 %
-static constexpr uint8_t OBJ_VOLTAGE   = 0x0C; // uint16 0.001 V
+static constexpr uint8_t OBJ_VOLTAGE   = 0x0C; // uint16 0.001 V (blob/GATT only;
+                                               // omitted from adv — see buildBtHome)
 
 // 16-bit "no registered company" id, matching HiveScale's bridge default. The
 // scan-response manufacturer blob below uses it so a HiveScale-side parser
@@ -79,6 +80,16 @@ static size_t packBlob(const Measurement& m, uint8_t* out) {
 // Build the BTHome v2 service-data payload (device-info byte + objects, sorted
 // ascending by object id as the spec requires). The 0xFCD2 UUID is prepended by
 // NimBLE's setServiceData().
+//
+// Budget note: the primary advertising packet (built in publish()) is
+// flags(3) + this service data + the local name, and must stay within the
+// 31-byte legacy advertising limit. With the default name "HiveInside" (12 B
+// on air) and flags (3 B) only 16 B are left, i.e. a service-data payload of at
+// most 12. We therefore keep this to packet-id + battery% + temp + humidity
+// (11 B). Raw battery *voltage* is intentionally omitted here — it is already
+// carried in the scan-response manufacturer blob and the GATT JSON — so adding
+// it back would overflow the packet (the original cause of NimBLE's
+// "Data length exceeded").
 static size_t buildBtHome(const Measurement& m, uint8_t* out) {
   size_t i = 0;
   out[i++] = BTHOME_DEVINFO;
@@ -90,11 +101,7 @@ static size_t buildBtHome(const Measurement& m, uint8_t* out) {
     uint16_t h = u16(m.humidity_pct, 100.0f);
     out[i++] = OBJ_HUMIDITY; out[i++] = h & 0xFF; out[i++] = (h >> 8) & 0xFF;
   }
-  if (m.battery_ok) {
-    uint16_t mv = u16(m.battery_v, 1000.0f);
-    out[i++] = OBJ_VOLTAGE; out[i++] = mv & 0xFF; out[i++] = (mv >> 8) & 0xFF;
-  }
-  return i;
+  return i; // <= 11 B, leaving room for flags + name in the 31-byte packet
 }
 
 // Serialise the entire Measurement to JSON for the GATT characteristic.
