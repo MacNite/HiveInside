@@ -1,89 +1,103 @@
-// main.cpp — HiveInside top-level loop.
+// main.cpp — HiveInside ESP32-C6 prototype top level.
 //
-// Cycle: wake -> read sensors -> capture mic bands -> read battery ->
-//        advertise BTHome -> sleep. A button press triggers an immediate
-//        identify advertisement and (long press) factory reset / key rotation.
+// Cycle: read SHT40 (temp/humidity) -> capture LIS3DH vibration FFT -> capture
+// INMP441 acoustic FFT -> read battery -> publish over BLE (BTHome advertising
+// or GATT, per BLE_MODE in config.h).
 //
-// Power model: between cycles the nRF52840 enters low-power sleep. On the
-// Nice!Nano prototype we use delay-based timing for simplicity; the production
-// build should switch to a System-ON sleep with an RTC wake (see TODO).
+// This prototype runs a simple millis()-based loop and keeps BLE up between
+// cycles (the radio is the point of the device). A deep-sleep variant for the
+// advertising mode is straightforward to add later (esp_deep_sleep + timer
+// wake); it is left out here so GATT clients can stay connected.
 #include <Arduino.h>
+#include <Wire.h>
 
 #include "config.h"
 #include "measurement.h"
-#include "sensors_i2c.h"
-#include "mic_i2s.h"
-#include "ble_bthome.h"
-#include "button.h"
+#include "sht40.h"
+#include "accel.h"
+#include "mic.h"
+#include "battery.h"
+#include "ble_link.h"
 
 static uint32_t lastMeasure = 0;
+static uint8_t packetId = 0;
+static int lastButton = HIGH;
 
-// Read battery voltage via ADC and map to a rough percentage for a 3V coin /
-// LiPo cell. Calibrate against the actual divider on the final board.
-static void readBattery(Measurement& m) {
-  analogReadResolution(12);
-  uint32_t raw = analogRead(PIN_VBAT_ADC);
-  // Nice!Nano has a 1/2 divider and 3.6V reference by default; adjust for the
-  // custom PCB divider. This is a placeholder mapping.
-  float v = (raw / 4095.0f) * 3.6f * 2.0f;
-  m.battery_v = v;
-
-  // crude coin-cell curve: 3.0V = 100%, 2.0V = 0%
-  float pct = (v - 2.0f) / (3.0f - 2.0f) * 100.0f;
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  m.battery_pct = (uint8_t)pct;
+static void led(bool on) {
+#if defined(PIN_LED)
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, (LED_ACTIVE_LOW ? !on : on));
+#endif
 }
 
-static void runMeasurementCycle() {
+static void runCycle() {
+  led(true);
   Measurement m;
+  m.packet_id = packetId++;
 
-  sensorsRead(m);
-  micCaptureBands(m.mic);
-  readBattery(m);
+#if ENABLE_SHT40
+  sht40::read(m);
+#endif
+#if ENABLE_ACCEL
+  accel::read(m);
+#endif
+#if ENABLE_MIC
+  mic::read(m);
+#endif
+#if ENABLE_BATTERY
+  battery::read(m);
+#endif
 
-  bleAdvertise(m);
+  ble::publish(m);
+  led(false);
 }
 
 void setup() {
-  // Serial is only useful on the USB prototype; harmless if unused.
   Serial.begin(115200);
+  delay(200);
+  Serial.printf("\n[HiveInside] ESP32-C6 prototype fw %s | BLE mode: %s\n",
+                HIVEINSIDE_FW_VERSION, ble::modeName());
 
-  buttonInit();
-  sensorsInit();
-  bleInit();
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  Wire.setClock(400000);
 
-  // First reading right away so the device shows up quickly in HA.
-  runMeasurementCycle();
+#if ENABLE_SHT40
+  sht40::begin();
+#endif
+#if ENABLE_ACCEL
+  accel::begin();
+#endif
+#if ENABLE_MIC
+  mic::begin();
+#endif
+#if ENABLE_BATTERY
+  battery::begin();
+#endif
+
+  ble::begin();
+
+  runCycle(); // publish immediately so the device shows up quickly
   lastMeasure = millis();
 }
 
 void loop() {
-  // Handle button events promptly.
-  switch (buttonPoll()) {
-    case ButtonEvent::ShortPress:
-      // Identify: send an immediate advertisement.
-      runMeasurementCycle();
+  // BOOT button: a short press forces an immediate measurement/publish.
+  int b = digitalRead(PIN_BUTTON);
+  if (lastButton == HIGH && b == LOW) {
+    delay(30); // debounce
+    if (digitalRead(PIN_BUTTON) == LOW) {
+      Serial.println("[BTN] manual publish");
+      runCycle();
       lastMeasure = millis();
-      break;
-    case ButtonEvent::LongPress:
-      // TODO: factory reset / rotate BTHome encryption key, then re-advertise.
-      runMeasurementCycle();
-      lastMeasure = millis();
-      break;
-    case ButtonEvent::None:
-    default:
-      break;
+    }
   }
+  lastButton = b;
 
-  // Periodic measurement.
   if (millis() - lastMeasure >= MEASURE_INTERVAL_MS) {
-    runMeasurementCycle();
+    runCycle();
     lastMeasure = millis();
   }
 
-  // TODO: replace busy-wait with System-ON sleep + RTC/GPIOTE wake to hit the
-  // ~µA sleep currents the hardware is capable of. For prototype bring-up a
-  // light delay keeps the loop responsive to the button.
-  delay(50);
+  delay(20);
 }
