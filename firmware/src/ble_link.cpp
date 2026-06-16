@@ -239,15 +239,19 @@ void publish(const Measurement& m) {
   scanData.setManufacturerData(blob, blobLen);
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->stop();
+  // Refresh the payload, then leave the radio advertising *continuously* until
+  // the next cycle. The previous code advertised for only ADV_BURST_MS and then
+  // stopped — with MEASURE_INTERVAL_MS at 5 min that left the device invisible
+  // ~99% of the time, so scanners (nRF Connect / Home Assistant) almost never
+  // caught it. Continuous advertising is the right default for bring-up; a
+  // burst-then-deep-sleep low-power mode (using ADV_BURST_MS) can come later.
+  adv->stop();                       // required to swap in fresh adv data
   adv->setAdvertisementData(advData);
   adv->setScanResponseData(scanData);
   adv->enableScanResponse(true);
-  adv->start();
-  Serial.printf("[BLE] advertising BTHome (%u B) + blob (%u B) for %d ms\n",
-                (unsigned)bthLen, (unsigned)blobLen, (int)ADV_BURST_MS);
-  delay(ADV_BURST_MS);
-  adv->stop();
+  if (!adv->start()) Serial.println("[BLE] advertising start FAILED");
+  Serial.printf("[BLE] advertising BTHome (%u B) + blob (%u B), continuous\n",
+                (unsigned)bthLen, (unsigned)blobLen);
 }
 #endif
 
