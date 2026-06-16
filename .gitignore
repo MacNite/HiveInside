@@ -14,6 +14,7 @@
 .idea/
 *.swp
 .DS_Store
+*.code-workspace
 
 # KiCad backups
 *-bak
