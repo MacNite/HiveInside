@@ -80,6 +80,17 @@
 #define PIN_I2C_SCL 7
 #endif
 
+// I2C bus clock. Default to the conservative 100 kHz "standard mode" for
+// breadboard bring-up: the ESP32-C6's internal pull-ups are weak (~45 kΩ), so
+// at 400 kHz over long jumper wires (or without the recommended external
+// 4.7 kΩ pull-ups) the rising edges are too slow and the IDF 5.x I2C-NG driver
+// reports i2c_master_transmit_receive failures (ESP_ERR_INVALID_STATE / 259).
+// Once the bus is wired with proper pull-ups, raise this to 400000 for faster
+// accelerometer sampling: -DI2C_CLOCK_HZ=400000.
+#ifndef I2C_CLOCK_HZ
+#define I2C_CLOCK_HZ 100000
+#endif
+
 // INMP441 I2S (SD has a 100k pull-down on most breakouts; L/R tied to GND = left)
 #ifndef PIN_I2S_BCLK
 #define PIN_I2S_BCLK 2

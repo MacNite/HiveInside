@@ -30,6 +30,25 @@ static void led(bool on) {
 #endif
 }
 
+// One-shot I2C probe so a bring-up failure is obvious: if neither sensor ACKs
+// here, the later "i2c_master_transmit_receive failed / ESP_ERR_INVALID_STATE"
+// errors are a wiring problem (power, SDA/SCL swapped, or missing pull-ups) —
+// not a firmware bug.
+static void i2cScan() {
+  Serial.println("[I2C] scanning bus...");
+  uint8_t found = 0;
+  for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf("[I2C]   device at 0x%02X\n", addr);
+      found++;
+    }
+  }
+  if (found == 0)
+    Serial.println("[I2C]   none found — check wiring, power and 4.7k pull-ups "
+                   "on SDA/SCL");
+}
+
 static void runCycle() {
   led(true);
   Measurement m;
@@ -60,7 +79,8 @@ void setup() {
 
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  Wire.setClock(400000);
+  Wire.setClock(I2C_CLOCK_HZ);
+  i2cScan();
 
 #if ENABLE_SHT40
   sht40::begin();
