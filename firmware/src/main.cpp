@@ -82,8 +82,8 @@ static void runCycle() {
 }
 
 #if DEEP_SLEEP_ENABLED
-static void enterDeepSleep() {
-  Serial.printf("[SLEEP] Entering deep sleep for %lu s\n", MEASURE_INTERVAL_MS / 1000UL);
+static void enterDeepSleep(uint64_t sleepMs) {
+  Serial.printf("[SLEEP] Entering deep sleep for %lu s\n", (unsigned long)(sleepMs / 1000ULL));
   Serial.flush();
   ble::shutdown();
   Wire.end();
@@ -91,7 +91,7 @@ static void enterDeepSleep() {
   // Button wake: only LP IO pins (GPIO0–7) work on ESP32-C6.
   esp_sleep_enable_ext1_wakeup(1ULL << PIN_WAKE_BUTTON, ESP_EXT1_WAKEUP_ANY_LOW);
 #endif
-  esp_sleep_enable_timer_wakeup((uint64_t)MEASURE_INTERVAL_MS * 1000ULL);
+  esp_sleep_enable_timer_wakeup(sleepMs * 1000ULL);
   esp_deep_sleep_start();
 }
 #endif
@@ -189,9 +189,25 @@ void loop() {
 
 #if DEEP_SLEEP_ENABLED
   // Sleep once the advertising window has elapsed — unless pairing is active.
+  uint64_t sleepMs = MEASURE_INTERVAL_MS;
   unsigned long windowMs = ble::isPairingActive() ? PAIRING_WINDOW_MS : ADV_BURST_MS;
+#if BLE_MODE == BLE_MODE_GATT && HIVEINSIDE_SYNC_ENABLED
+  // Synced wake: stay connectable for the (longer) listen window so HiveScale's
+  // scan + connect can land, then sleep for the duration it told us. If a value
+  // already arrived this wake and the central has disconnected, sleep right away
+  // rather than burning the rest of the window. With no value (HiveScale missed
+  // us), fall back to MEASURE_INTERVAL_MS via the default above.
+  if (!ble::isPairingActive()) {
+    windowMs = SYNC_LISTEN_MS;
+    uint64_t syncMs = 0;
+    if (ble::syncWakeMs(&syncMs)) {
+      sleepMs = syncMs;
+      if (!ble::isCentralConnected()) windowMs = 0;  // schedule in hand → sleep now
+    }
+  }
+#endif
   if (millis() - lastMeasure >= windowMs) {
-    enterDeepSleep();
+    enterDeepSleep(sleepMs);
   }
 #endif
 

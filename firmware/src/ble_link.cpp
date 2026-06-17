@@ -32,6 +32,9 @@ static constexpr uint8_t BLOB_VERSION = 0x01;
 // ── Custom GATT service (full measurement as JSON) ──
 static const char* SVC_HIVEINSIDE   = "8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01";
 static const char* CHR_MEASUREMENT  = "8e8b0002-7a1c-4b9e-9a2f-1d6e0b9c1a01";
+// Writable: uint32 LE seconds HiveScale wants this device to sleep before the
+// next connection. Must match HiveScale firmware/src/ble_sensor.cpp.
+static const char* CHR_SYNC         = "8e8b0003-7a1c-4b9e-9a2f-1d6e0b9c1a01";
 
 static int16_t  s16(float v, float scale) { return (int16_t)lroundf(v * scale); }
 static uint16_t u16(float v, float scale) {
@@ -177,12 +180,45 @@ static NimBLECharacteristic* chrTemp = nullptr;
 static NimBLECharacteristic* chrHumidity = nullptr;
 static NimBLECharacteristic* chrMeasurement = nullptr;
 
+#if HIVEINSIDE_SYNC_ENABLED
+static NimBLECharacteristic* chrSync = nullptr;
+static volatile bool     s_syncReceived = false;  // a valid wake-sync was written
+static volatile uint64_t s_syncSleepMs  = 0;       // clamped sleep request
+static volatile uint8_t  s_centralCount = 0;       // connected centrals
+
+// On write, decode the uint32 LE seconds and clamp into the allowed range.
+class SyncCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& info) override {
+    NimBLEAttValue v = c->getValue();
+    if (v.size() < 4) {
+      Serial.printf("[BLE] sync write ignored (%u bytes)\n", (unsigned)v.size());
+      return;
+    }
+    const uint8_t* p = v.data();
+    uint32_t sec = (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+                   ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    uint64_t ms = (uint64_t)sec * 1000ULL;
+    if (ms < SYNC_MIN_SLEEP_MS) ms = SYNC_MIN_SLEEP_MS;
+    if (ms > SYNC_MAX_SLEEP_MS) ms = SYNC_MAX_SLEEP_MS;
+    s_syncSleepMs  = ms;
+    s_syncReceived = true;
+    Serial.printf("[BLE] wake-sync received: sleep %lus\n", (unsigned long)(ms / 1000ULL));
+  }
+};
+#endif
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, NimBLEConnInfo& info) override {
     Serial.println("[BLE] central connected");
+#if HIVEINSIDE_SYNC_ENABLED
+    s_centralCount++;
+#endif
   }
   void onDisconnect(NimBLEServer* s, NimBLEConnInfo& info, int reason) override {
     Serial.printf("[BLE] central disconnected (reason %d); re-advertising\n", reason);
+#if HIVEINSIDE_SYNC_ENABLED
+    if (s_centralCount) s_centralCount--;
+#endif
     NimBLEDevice::startAdvertising();
   }
 };
@@ -211,6 +247,12 @@ void begin() {
   NimBLEService* hiSvc = server->createService(SVC_HIVEINSIDE);
   chrMeasurement = hiSvc->createCharacteristic(CHR_MEASUREMENT,
                       NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+#if HIVEINSIDE_SYNC_ENABLED
+  // Wake-sync: HiveScale writes the next sleep duration here each cycle.
+  chrSync = hiSvc->createCharacteristic(CHR_SYNC,
+               NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ);
+  chrSync->setCallbacks(new SyncCallbacks());
+#endif
   hiSvc->start();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
@@ -247,6 +289,18 @@ void publish(const Measurement& m) {
   chrMeasurement->notify();
   Serial.printf("[BLE] GATT updated (%u-byte JSON)\n", (unsigned)json.length());
 }
+
+#if HIVEINSIDE_SYNC_ENABLED
+bool syncWakeMs(uint64_t* outMs) {
+  if (!s_syncReceived) return false;
+  if (outMs) *outMs = s_syncSleepMs;
+  return true;
+}
+
+bool isCentralConnected() {
+  return s_centralCount > 0;
+}
+#endif
 
 #else
 // ---------------------------------------------------------------------------
