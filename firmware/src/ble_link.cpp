@@ -123,34 +123,44 @@ void shutdown() {
   Serial.println("[BLE] shutdown");
 }
 
-// Serialise the entire Measurement to JSON for the GATT characteristic.
+// Round helpers — keep the JSON compact and free of float-repr noise
+// (e.g. -75.80000305). NaN passes through and ArduinoJson serialises it as
+// null, which the HiveScale reader maps back to "field absent".
+static float r2(float v) { return isnan(v) ? v : roundf(v * 100.0f) / 100.0f; }
+static float r1(float v) { return isnan(v) ? v : roundf(v * 10.0f) / 10.0f; }
+
+// Serialise the measurement to JSON for the GATT characteristic.
+//
+// IMPORTANT — a single GATT characteristic value is capped at 512 bytes by the
+// Bluetooth spec (ATT max attribute value length). The previous full dump ran
+// to ~625 bytes and NimBLE rejected it ("val > max"), so connecting clients got
+// a truncated/empty read. We therefore emit only the fields the HiveScale GATT
+// reader (firmware/src/ble_sensor.cpp::gattReadHiveInside) consumes, plus fw +
+// packet_id for diagnostics. This lands around ~420 bytes — well under the cap.
+// Dropped vs. the old payload: *_sample_rate_hz, *_sample_count,
+// mic_rms_normalized, mic_peak_dbfs, battery_v, sht_ok (metadata the bridge does
+// not use; battery_v stays available in the advertising blob and Battery
+// Service). Generic clients still get temp/humidity/battery from the standard
+// Environmental-Sensing and Battery services.
 static String measurementJson(const Measurement& m) {
   JsonDocument doc;
   doc["fw"] = HIVEINSIDE_FW_VERSION;
   doc["packet_id"] = m.packet_id;
-  doc["sht_ok"] = m.sht_ok;
-  doc["temp_c"] = m.temp_c;
-  doc["humidity_percent"] = m.humidity_pct;
+  doc["temp_c"] = r2(m.temp_c);
+  doc["humidity_percent"] = r2(m.humidity_pct);
   doc["accel_ok"] = m.accel_ok;
-  doc["accel_sample_rate_hz"] = m.accel_sample_rate_hz;
-  doc["accel_sample_count"] = m.accel_sample_count;
-  doc["accel_rms_mg"] = m.accel_rms_mg;
-  doc["accel_peak_mg"] = m.accel_peak_mg;
-  doc["accel_band_swarm_mg"] = m.accel_bands.swarm_mg;
-  doc["accel_band_fanning_mg"] = m.accel_bands.fanning_mg;
-  doc["accel_band_activity_mg"] = m.accel_bands.activity_mg;
+  doc["accel_rms_mg"] = r1(m.accel_rms_mg);
+  doc["accel_peak_mg"] = r1(m.accel_peak_mg);
+  doc["accel_band_swarm_mg"] = r1(m.accel_bands.swarm_mg);
+  doc["accel_band_fanning_mg"] = r1(m.accel_bands.fanning_mg);
+  doc["accel_band_activity_mg"] = r1(m.accel_bands.activity_mg);
   doc["mic_ok"] = m.mic_ok;
-  doc["mic_sample_rate_hz"] = m.mic_sample_rate_hz;
-  doc["mic_rms_dbfs"] = m.mic_rms_dbfs;
-  doc["mic_peak_dbfs"] = m.mic_peak_dbfs;
-  doc["mic_rms_normalized"] = m.mic_rms_normalized;
-  doc["mic_band_sub_bass_dbfs"] = m.mic_bands.sub_bass_dbfs;
-  doc["mic_band_hum_dbfs"] = m.mic_bands.hum_dbfs;
-  doc["mic_band_piping_dbfs"] = m.mic_bands.piping_dbfs;
-  doc["mic_band_stress_dbfs"] = m.mic_bands.stress_dbfs;
-  doc["mic_band_high_dbfs"] = m.mic_bands.high_dbfs;
-  doc["battery_ok"] = m.battery_ok;
-  doc["battery_v"] = m.battery_v;
+  doc["mic_rms_dbfs"] = r1(m.mic_rms_dbfs);
+  doc["mic_band_sub_bass_dbfs"] = r1(m.mic_bands.sub_bass_dbfs);
+  doc["mic_band_hum_dbfs"] = r1(m.mic_bands.hum_dbfs);
+  doc["mic_band_piping_dbfs"] = r1(m.mic_bands.piping_dbfs);
+  doc["mic_band_stress_dbfs"] = r1(m.mic_bands.stress_dbfs);
+  doc["mic_band_high_dbfs"] = r1(m.mic_bands.high_dbfs);
   doc["battery_percent"] = m.battery_pct;
   String out;
   serializeJson(doc, out);
@@ -226,6 +236,13 @@ void publish(const Measurement& m) {
     chrHumidity->notify();
   }
   String json = measurementJson(m);
+  // A GATT characteristic value cannot exceed 512 bytes (ATT spec limit). Skip
+  // rather than let NimBLE reject it and leave clients with a stale value.
+  if (json.length() > 512) {
+    Serial.printf("[BLE] GATT JSON too large (%u B > 512); not updated — trim measurementJson()\n",
+                  (unsigned)json.length());
+    return;
+  }
   chrMeasurement->setValue((uint8_t*)json.c_str(), json.length());
   chrMeasurement->notify();
   Serial.printf("[BLE] GATT updated (%u-byte JSON)\n", (unsigned)json.length());
