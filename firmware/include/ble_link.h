@@ -22,6 +22,14 @@ void begin();
 // Publish a fresh measurement: re-advertise (advertising mode) or update the
 // characteristics and notify subscribers (GATT mode).
 void publish(const Measurement& m);
+// Deinit the BLE stack cleanly (call before deep sleep).
+void shutdown();
+// Enter pairing mode: keeps the device visible for PAIRING_WINDOW_MS so
+// HiveScale's provisioning portal can discover the MAC. The device is already
+// advertising/connectable in both modes; pairing mode mainly suppresses sleep.
+void enterPairingMode();
+// Returns true while the pairing window is open.
+bool isPairingActive();
 // Human-readable name of the active mode, for logging.
 const char* modeName();
 } // namespace ble

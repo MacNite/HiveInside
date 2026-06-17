@@ -61,8 +61,50 @@
 
 // Advertising-mode radio burst per cycle (ms). Long enough for a scanner to
 // catch a couple of packets; short enough to keep the average current low.
+// Also used as the post-publish awake window before deep sleep when
+// DEEP_SLEEP_ENABLED=1 — HiveScale's 6 s scan overlaps with this.
 #ifndef ADV_BURST_MS
-#define ADV_BURST_MS 3000
+#define ADV_BURST_MS 8000  // 8 s: safely covers HiveScale's 6 s scan window
+#endif
+
+// ---------------------------------------------------------------------------
+// Deep sleep (timer-based wake). DISABLED by default.
+//
+// When enabled, the device wakes, runs one measurement cycle, advertises for
+// ADV_BURST_MS, then sleeps for MEASURE_INTERVAL_MS. Total awake time per
+// cycle ≈ sensor-read time (~3–5 s) + ADV_BURST_MS.
+//
+// IMPORTANT — GPIO wake-from-sleep on ESP32-C6:
+//   Only LP IO pins (GPIO0–7) can wake the chip from deep sleep via ext1.
+//   GPIO9 (the on-board BOOT button) is NOT an LP IO pin and CANNOT be used
+//   as a wake source. To enable button-from-sleep, wire a separate button to
+//   a GPIO0–7 pin and set PIN_WAKE_BUTTON to that pin number.
+//   PIN_WAKE_BUTTON = -1 (default) disables button-from-sleep wakeup.
+// ---------------------------------------------------------------------------
+#ifndef DEEP_SLEEP_ENABLED
+#define DEEP_SLEEP_ENABLED 0
+#endif
+
+// LP-capable GPIO for deep-sleep button wake (GPIO0–7 on ESP32-C6 only).
+// -1 = disabled (timer-only wake).
+#ifndef PIN_WAKE_BUTTON
+#define PIN_WAKE_BUTTON (-1)
+#endif
+
+// ---------------------------------------------------------------------------
+// Pairing mode — activated by a long button press (PAIRING_LONG_PRESS_MS).
+//
+// During the pairing window the device suppresses deep sleep so HiveScale's
+// provisioning portal can scan and discover its MAC address. In GATT mode the
+// device is already connectable; in advertising mode it broadcasts continuously.
+// A fast LED blink indicates the window is open.
+// ---------------------------------------------------------------------------
+#ifndef PAIRING_WINDOW_MS
+#define PAIRING_WINDOW_MS (60UL * 1000UL)   // 60 s visible for pairing
+#endif
+
+#ifndef PAIRING_LONG_PRESS_MS
+#define PAIRING_LONG_PRESS_MS 3000           // hold 3 s to enter pairing mode
 #endif
 
 // ---------------------------------------------------------------------------

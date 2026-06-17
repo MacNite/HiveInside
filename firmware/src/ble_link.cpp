@@ -104,6 +104,25 @@ static size_t buildBtHome(const Measurement& m, uint8_t* out) {
   return i; // <= 11 B, leaving room for flags + name in the 31-byte packet
 }
 
+// ── Pairing mode ──────────────────────────────────────────────────────────
+// Shared between advertising and GATT modes: just a timer that suppresses
+// deep sleep so HiveScale's provisioning portal can discover the device.
+static unsigned long s_pairingUntilMs = 0;
+
+void enterPairingMode() {
+  s_pairingUntilMs = millis() + PAIRING_WINDOW_MS;
+  Serial.printf("[BLE] Pairing window open for %lus\n", PAIRING_WINDOW_MS / 1000UL);
+}
+
+bool isPairingActive() {
+  return millis() < s_pairingUntilMs;
+}
+
+void shutdown() {
+  NimBLEDevice::deinit(true);
+  Serial.println("[BLE] shutdown");
+}
+
 // Serialise the entire Measurement to JSON for the GATT characteristic.
 static String measurementJson(const Measurement& m) {
   JsonDocument doc;
