@@ -11,8 +11,8 @@
 namespace ble {
 // Initialise the radio and start the GATT server. Call once in setup().
 void begin();
-// Publish a fresh measurement: re-advertise (advertising mode) or update the
-// characteristics and notify subscribers (GATT mode).
+// Publish a fresh measurement: update the GATT characteristics and notify
+// subscribers.
 void publish(const Measurement& m);
 // Deinit the BLE stack cleanly (call before deep sleep).
 void shutdown();

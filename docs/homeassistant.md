@@ -1,46 +1,40 @@
 # Home Assistant integration
 
-HiveInside broadcasts **BTHome v2** advertisements, which Home Assistant
-discovers automatically — no custom integration, no cloud, no app.
+HiveInside is a connectable **BLE GATT server**, not a BTHome broadcaster, so it
+is **not** auto-discovered by Home Assistant's BTHome integration. There are two
+supported ways to get its data into Home Assistant.
 
-## Requirements
+## Option 1 (recommended): via HiveScale
 
-- Home Assistant with the **BTHome** integration (built in).
-- A Bluetooth adapter on the HA host **or** an **ESP32 Bluetooth Proxy**
-  (ESPHome) within radio range of the hive. The HiveScale node can also serve
-  as a passive BLE bridge.
+In a normal deployment a **HiveScale** node connects to HiveInside over GATT each
+cycle, reads the measurement characteristic and forwards everything to the
+HiveScale backend. Surface the data in Home Assistant from there (e.g. the
+HiveScale API / MQTT) rather than talking to the sensor over BLE directly. This
+is the path the wake-sync feature is built around, and it keeps the sensor's
+radio duty cycle low.
 
-## Pairing (none, by default)
+## Option 2: direct GATT via an ESPHome BLE client
 
-Because BTHome uses connectionless advertising, there is **no pairing step** for
-the default (unencrypted) mode:
+If you want Home Assistant to read the sensor directly, put an **ESP32 running
+ESPHome** within radio range and use a `ble_client` to subscribe to the
+HiveInside characteristics:
 
-1. Power up the HiveInside device.
-2. Within a couple of minutes HA shows a **"BTHome sensor discovered"**
-   notification.
-3. Click **Configure** → the device and its sensors (temperature, humidity,
-   pressure, battery, acceleration) are added.
+| Service | Characteristic | Data |
+|---|---|---|
+| Battery `0x180F` | `0x2A19` | battery % |
+| Environmental Sensing `0x181A` | `0x2A6E` | temperature (0.01 °C) |
+| Environmental Sensing `0x181A` | `0x2A6F` | humidity (0.01 %) |
+| HiveInside `8e8b0001-…` | `8e8b0002-…` | full measurement JSON |
 
-Press the on-board button once to force an immediate advertisement if you want
-the device to appear faster ("identify").
+Temperature, humidity and battery use standard SIG characteristics, so an
+ESPHome `ble_client_sensor` (or any generic GATT client) can read them directly.
+The full FFT dataset lives in the JSON `8e8b0002-…` characteristic and needs a
+small template / lambda to parse.
 
-## Optional: encrypted advertisements
-
-BTHome supports AES-encrypted payloads. When enabled (future firmware option),
-HA asks for a **bind key** during configuration. The on-board button is used to
-enter pairing/key-handover mode so the key can be provisioned cleanly. This is
-optional — unencrypted mode is fine for most hobby deployments.
-
-## Acoustic bands
-
-Climate, pressure, battery and accel map to standard BTHome object IDs and
-appear automatically. The five FFT acoustic bands are application-specific; they
-are exposed as additional values and may need a small template or a BTHome
-custom-object mapping to surface as named sensors. See firmware
-`src/ble_bthome.cpp` for the payload layout.
+Note that an ESPHome BLE client holds a connection, which conflicts with
+HiveScale's per-cycle connect + wake-sync — pick **one** central per device.
 
 ## Range & placement
 
-BLE from inside a wooden hive attenuates somewhat. Keep the HA Bluetooth adapter
-/ ESP32 proxy within ~10–15 m, or co-locate a HiveScale node (acting as bridge)
-on the same stand.
+BLE from inside a wooden hive attenuates somewhat. Keep the central (HiveScale
+node or ESPHome proxy) within ~10–15 m, or co-locate it on the same stand.

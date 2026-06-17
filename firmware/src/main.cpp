@@ -189,7 +189,7 @@ void loop() {
 #endif
 
 #if DEEP_SLEEP_ENABLED
-  // Sleep once the advertising window has elapsed — unless pairing is active.
+  // Sleep once the connectable window has elapsed — unless pairing is active.
   uint64_t sleepMs = MEASURE_INTERVAL_MS;
   unsigned long windowMs = ble::isPairingActive() ? PAIRING_WINDOW_MS : CONNECT_WINDOW_MS;
 #if HIVEINSIDE_SYNC_ENABLED
