@@ -1,13 +1,14 @@
 // main.cpp — HiveInside ESP32-C6 prototype top level.
 //
 // Cycle: read SHT40 (temp/humidity) -> capture LIS3DH vibration FFT -> capture
-// INMP441 acoustic FFT -> read battery -> publish over BLE (BTHome advertising
-// or GATT, per BLE_MODE in config.h).
+// INMP441 acoustic FFT -> read battery -> publish over BLE (connectable GATT
+// server — see ble_link.cpp).
 //
 // Deep sleep (DEEP_SLEEP_ENABLED=1, default OFF):
-//   After each cycle the device advertises for ADV_BURST_MS then sleeps for
-//   MEASURE_INTERVAL_MS. Wake sources: timer (always) and optionally a button
-//   on PIN_WAKE_BUTTON (must be GPIO0–7 on ESP32-C6; GPIO9 is not LP-capable).
+//   After each cycle the device stays connectable for CONNECT_WINDOW_MS then
+//   sleeps for MEASURE_INTERVAL_MS. Wake sources: timer (always) and optionally
+//   a button on PIN_WAKE_BUTTON (must be GPIO0–7 on ESP32-C6; GPIO9 is not
+//   LP-capable).
 //
 // Pairing mode (long press >= PAIRING_LONG_PRESS_MS on PIN_BUTTON):
 //   Suppresses sleep for PAIRING_WINDOW_MS and blinks the LED fast so the user
@@ -188,10 +189,10 @@ void loop() {
 #endif
 
 #if DEEP_SLEEP_ENABLED
-  // Sleep once the advertising window has elapsed — unless pairing is active.
+  // Sleep once the connectable window has elapsed — unless pairing is active.
   uint64_t sleepMs = MEASURE_INTERVAL_MS;
-  unsigned long windowMs = ble::isPairingActive() ? PAIRING_WINDOW_MS : ADV_BURST_MS;
-#if BLE_MODE == BLE_MODE_GATT && HIVEINSIDE_SYNC_ENABLED
+  unsigned long windowMs = ble::isPairingActive() ? PAIRING_WINDOW_MS : CONNECT_WINDOW_MS;
+#if HIVEINSIDE_SYNC_ENABLED
   // Synced wake: stay connectable for the (longer) listen window so HiveScale's
   // scan + connect can land, then sleep for the duration it told us. If a value
   // already arrived this wake and the central has disconnected, sleep right away

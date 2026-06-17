@@ -1,41 +1,33 @@
-// ble_link.h — BLE transport with a compile-time advertising / GATT switch.
+// ble_link.h — BLE transport: a connectable GATT server.
 //
-// The mode is chosen by BLE_MODE in config.h (override with -DBLE_MODE in
-// platformio.ini):
-//
-//   BLE_MODE_ADVERTISING — connectionless BTHome v2 broadcast (Home Assistant
-//       native) for temp/humidity/battery, plus a compact manufacturer-data
-//       blob in the scan response carrying the full vibration + acoustic
-//       summary (all FFT bands, RMS, peak). Radio on only ADV_BURST_MS/cycle.
-//
-//   BLE_MODE_GATT — connectable GATT server. Standard Battery (0x180F) and
-//       Environmental Sensing (0x181A) services for generic clients, plus a
-//       custom HiveInside service whose JSON characteristic carries the entire
-//       Measurement (every band, RMS and peak). Read or subscribe-to-notify.
+// The device exposes the standard Battery (0x180F) and Environmental Sensing
+// (0x181A) services for generic clients, plus a custom HiveInside service whose
+// JSON characteristic carries the entire Measurement (every band, RMS and
+// peak). Read or subscribe-to-notify.
 #pragma once
 
 #include "measurement.h"
 
 namespace ble {
-// Initialise the radio for the configured BLE_MODE. Call once in setup().
+// Initialise the radio and start the GATT server. Call once in setup().
 void begin();
-// Publish a fresh measurement: re-advertise (advertising mode) or update the
-// characteristics and notify subscribers (GATT mode).
+// Publish a fresh measurement: update the GATT characteristics and notify
+// subscribers.
 void publish(const Measurement& m);
 // Deinit the BLE stack cleanly (call before deep sleep).
 void shutdown();
 // Enter pairing mode: keeps the device visible for PAIRING_WINDOW_MS so
 // HiveScale's provisioning portal can discover the MAC. The device is already
-// advertising/connectable in both modes; pairing mode mainly suppresses sleep.
+// advertising as connectable; pairing mode mainly suppresses sleep.
 void enterPairingMode();
 // Returns true while the pairing window is open.
 bool isPairingActive();
-// Human-readable name of the active mode, for logging.
+// Human-readable name of the active transport, for logging.
 const char* modeName();
 
-#if BLE_MODE == BLE_MODE_GATT && HIVEINSIDE_SYNC_ENABLED
-// Wake synchronisation (GATT mode): HiveScale writes the seconds to sleep before
-// the next connection into a writable characteristic. These let main.cpp decide
+#if HIVEINSIDE_SYNC_ENABLED
+// Wake synchronisation: HiveScale writes the seconds to sleep before the next
+// connection into a writable characteristic. These let main.cpp decide
 // the deep-sleep duration and when the listen window can end early.
 
 // If HiveScale wrote a wake-sync value during this awake period, store the

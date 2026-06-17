@@ -21,8 +21,8 @@
 #define HIVEINSIDE_FW_VERSION "0.1.0-esp32c6"
 #endif
 
-// BLE local name — what Home Assistant / nRF Connect shows. Keep it short so it
-// fits in the advertisement alongside the BTHome service data.
+// BLE local name — what nRF Connect / a central shows. Keep it short so it fits
+// in the connectable advertisement alongside the service UUID.
 #ifndef BLE_DEVICE_NAME
 #define BLE_DEVICE_NAME "HiveInside"
 #endif
@@ -33,46 +33,29 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// BLE MODE — the headline "firmware variable" the prototype is built around.
+// BLE transport — connectable GATT server.
 //
-//   BLE_MODE_ADVERTISING (0): connectionless broadcast. Each cycle the device
-//       advertises a BTHome v2 service-data payload (temp / humidity / battery /
-//       a curated set of vibration + acoustic RMS values) plus a compact
-//       manufacturer-specific blob carrying the full measurement struct
-//       (all FFT bands). Lowest power, no pairing, native Home Assistant
-//       discovery. The radio is only on for ADV_BURST_MS each cycle.
-//
-//   BLE_MODE_GATT (1): connectable GATT server. The device stays advertising as
-//       connectable; a central (phone / laptop / gateway) connects and reads or
-//       subscribes to characteristics. Exposes the standard Battery +
-//       Environmental-Sensing services for generic clients, plus a custom
-//       HiveInside service whose JSON characteristic carries the complete
-//       measurement (every FFT band, RMS, peak). Higher power, richer access.
-//
-// Select at build time with -DBLE_MODE=BLE_MODE_GATT in platformio.ini
-// (defaults to advertising here).
+// The device stays advertising as connectable; a central (HiveScale / phone /
+// laptop / gateway) connects and reads or subscribes to characteristics. It
+// exposes the standard Battery (0x180F) + Environmental-Sensing (0x181A)
+// services for generic clients, plus a custom HiveInside service whose JSON
+// characteristic carries the complete measurement (every FFT band, RMS, peak).
 // ---------------------------------------------------------------------------
-#define BLE_MODE_ADVERTISING 0
-#define BLE_MODE_GATT 1
 
-#ifndef BLE_MODE
-#define BLE_MODE BLE_MODE_ADVERTISING
-#endif
-
-// Advertising-mode radio burst per cycle (ms). Long enough for a scanner to
-// catch a couple of packets; short enough to keep the average current low.
-// Also used as the post-publish awake window before deep sleep when
-// DEEP_SLEEP_ENABLED=1 — HiveScale's 6 s scan overlaps with this.
-#ifndef ADV_BURST_MS
-#define ADV_BURST_MS 8000  // 8 s: safely covers HiveScale's 6 s scan window
+// Connectable awake window per cycle (ms): the post-publish awake window before
+// deep sleep when DEEP_SLEEP_ENABLED=1 — long enough for a central to discover
+// and connect (HiveScale's 6 s scan overlaps with this). When wake
+// synchronisation is active this is superseded by SYNC_LISTEN_MS.
+#ifndef CONNECT_WINDOW_MS
+#define CONNECT_WINDOW_MS 8000  // 8 s: safely covers HiveScale's 6 s scan window
 #endif
 
 // ---------------------------------------------------------------------------
 // Deep sleep (timer-based wake). DISABLED by default.
 //
-// When enabled, the device wakes, runs one measurement cycle, advertises for
-// ADV_BURST_MS, then sleeps for MEASURE_INTERVAL_MS. Total awake time per
-// cycle ≈ sensor-read time (~3–5 s) + ADV_BURST_MS.
+// When enabled, the device wakes, runs one measurement cycle, stays connectable
+// for CONNECT_WINDOW_MS, then sleeps for MEASURE_INTERVAL_MS. Total awake time
+// per cycle ≈ sensor-read time (~3–5 s) + CONNECT_WINDOW_MS.
 //
 // IMPORTANT — GPIO wake-from-sleep on ESP32-C6:
 //   Only LP IO pins (GPIO0–7) can wake the chip from deep sleep via ext1.
@@ -95,8 +78,8 @@
 // Pairing mode — activated by a long button press (PAIRING_LONG_PRESS_MS).
 //
 // During the pairing window the device suppresses deep sleep so HiveScale's
-// provisioning portal can scan and discover its MAC address. In GATT mode the
-// device is already connectable; in advertising mode it broadcasts continuously.
+// provisioning portal can scan and discover its MAC address. The device is
+// already advertising as connectable; the pairing window just keeps it awake.
 // A fast LED blink indicates the window is open.
 // ---------------------------------------------------------------------------
 #ifndef PAIRING_WINDOW_MS
@@ -108,20 +91,20 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// Wake synchronisation (HiveScale is the schedule master). GATT mode only.
+// Wake synchronisation (HiveScale is the schedule master).
 //
-// When HIVEINSIDE_SYNC_ENABLED and BLE_MODE_GATT, HiveScale writes a uint32 LE
+// When HIVEINSIDE_SYNC_ENABLED, HiveScale writes a uint32 LE
 // "sleep this many seconds" value to a writable characteristic during the
 // connection it already makes each cycle. On the next deep sleep HiveInside uses
 // that value instead of MEASURE_INTERVAL_MS, so it wakes just before HiveScale's
-// next scan instead of advertising continuously. If no value is written during a
+// next scan instead of staying connectable continuously. If no value is written during a
 // wake (e.g. HiveScale missed the connection), it falls back to
 // MEASURE_INTERVAL_MS so the device never sleeps indefinitely.
 //
 // Because the deep-sleep timer drifts (±5–10% on the internal RC oscillator) and
 // HiveScale's hint already subtracts a lead, the device must stay awake and
 // connectable for SYNC_LISTEN_MS after each wake to be sure it overlaps
-// HiveScale's scan + connect. This replaces ADV_BURST_MS as the awake window
+// HiveScale's scan + connect. This replaces CONNECT_WINDOW_MS as the awake window
 // when sync is active; once the central connects, writes the next hint and
 // disconnects, the device sleeps immediately without waiting out the window.
 #ifndef HIVEINSIDE_SYNC_ENABLED

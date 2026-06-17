@@ -8,12 +8,11 @@ A stand-alone, battery-powered **in-hive environmental and acoustic sensor** for
 beehive monitoring. Built around the Nordic **nRF52840** and designed to run for
 months on a single coin cell or small LiPo.
 
-HiveInside broadcasts its readings over **BLE using the open
-[BTHome v2](https://bthome.io/) protocol**, so it integrates natively with
-**Home Assistant** (and any BTHome-aware receiver) with zero custom code — no
-pairing, no cloud, no app required. It also pairs cleanly with the
-[HiveScale](https://github.com/MacNite/HiveScale) ecosystem, where a HiveScale
-node can act as a passive BLE bridge to the backend.
+HiveInside exposes its readings over **BLE as a connectable GATT server** —
+standard Battery and Environmental-Sensing services plus a custom characteristic
+that carries the full measurement (every FFT band) as JSON. It pairs cleanly with
+the [HiveScale](https://github.com/MacNite/HiveScale) ecosystem, where a HiveScale
+node connects over GATT each cycle and bridges the readings to the backend.
 
 > Part of the open beehive-monitoring ecosystem alongside
 > **HiveScale** (weight / external sensing) and **BeeCounter** (entrance traffic).
@@ -44,9 +43,9 @@ cabling that a wired in-hive sensor would otherwise require.
 
 ## Key features
 
-- **BTHome v2** BLE advertising — native Home Assistant support
+- **Connectable GATT server** — standard Battery + Environmental-Sensing services plus a custom JSON characteristic with the full FFT dataset
 - **Ultra-low power** — nRF52840 deep sleep ~3–20 µA; months on a CR2477 / LiPo
-- **No pairing required** — passive broadcast; optional encrypted mode via button
+- **HiveScale-driven wake sync** — HiveScale schedules the next wake over GATT, so the radio is on only when it connects
 - **Open hardware** — KiCad design, JLCPCB-ready BOM
 - **PlatformIO + Arduino** — easy to build and flash over USB (Nice!Nano) or SWD
 
@@ -74,10 +73,13 @@ HiveInside/
 3. Plug in a **Nice!Nano v2** (or clone) via USB-C.
 4. Build & upload (`PlatformIO: Upload`). The board mounts as a UF2 drive and
    flashes automatically.
-5. Open Home Assistant → it should auto-discover a new **BTHome** device.
+5. Connect with a BLE client (e.g. **nRF Connect**) and read the HiveInside
+   service, or pair the device with a **HiveScale** node so it bridges the
+   readings to the backend.
 
 See [`docs/flashing.md`](docs/flashing.md) for custom-PCB / SWD flashing and
-[`docs/homeassistant.md`](docs/homeassistant.md) for HA setup.
+[`docs/homeassistant.md`](docs/homeassistant.md) for Home Assistant / HiveScale
+integration.
 
 ---
 

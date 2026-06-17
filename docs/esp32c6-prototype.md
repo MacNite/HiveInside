@@ -2,8 +2,8 @@
 
 A quick, breadboard-friendly bring-up of the HiveInside sensor suite on cheap
 modules, **before** the nRF52840 production PCB. It ports the proven LIS3DH and
-INMP441 FFT code from [HiveScale](https://github.com/MacNite/HiveScale) and adds
-a single **firmware switch between BLE advertising and a GATT server**.
+INMP441 FFT code from [HiveScale](https://github.com/MacNite/HiveScale) and
+exposes the readings over a **connectable BLE GATT server**.
 
 Project: [`firmware-esp32c6/`](../firmware-esp32c6).
 
@@ -29,33 +29,27 @@ definitions match across the ecosystem:
 - **Temperature / humidity** (SHT40).
 - **Battery** voltage + rough percentage (optional; see below).
 
-## BLE mode switch (the "firmware variable")
+## BLE: connectable GATT server
 
-Set by `BLE_MODE` in [`include/config.h`](../firmware-esp32c6/include/config.h),
-overridden per PlatformIO environment:
-
-| Env | `BLE_MODE` | Behaviour |
-|---|---|---|
-| `c6_advertising` (default) | `BLE_MODE_ADVERTISING` | Connectionless **BTHome v2** broadcast — temp/humidity/battery show up natively in **Home Assistant**. A compact manufacturer-data blob in the **scan response** also carries the full vibration + acoustic summary (all bands, RMS, peak). Radio on only `ADV_BURST_MS` per cycle → lowest power. |
-| `c6_gatt` | `BLE_MODE_GATT` | Connectable **GATT server**: standard Battery (0x180F) + Environmental Sensing (0x181A) services for generic clients, plus a custom HiveInside service whose JSON characteristic returns the **entire** measurement (every band). Read once or subscribe to notifications. |
+The device runs as a connectable **GATT server**: standard Battery (0x180F) +
+Environmental Sensing (0x181A) services for generic clients, plus a custom
+HiveInside service whose JSON characteristic returns the **entire** measurement
+(every band). Read once or subscribe to notifications.
 
 ```bash
-pio run -e c6_advertising -t upload   # BTHome broadcast
-pio run -e c6_gatt        -t upload   # connectable GATT server
+pio run -e c6_gatt -t upload   # connectable GATT server
 ```
 
-In advertising mode the device advertises **continuously** (refreshing the
-payload every `MEASURE_INTERVAL_MS`, default 5 min — press the BOOT button to
-force an immediate refresh). Scan with the **BTHome** integration in Home
-Assistant or with nRF Connect. In GATT mode, connect with nRF Connect and read
-the `8e8b0002-…` characteristic for the full JSON.
+The device stays advertising as connectable and refreshes the characteristics
+every `MEASURE_INTERVAL_MS` (default 5 min — press the BOOT button to force an
+immediate refresh). Connect with nRF Connect and read the `8e8b0002-…`
+characteristic for the full JSON, or subscribe for notifications.
 
-### Wake synchronisation (GATT mode)
+### Wake synchronisation
 
-When `HIVEINSIDE_SYNC_ENABLED` is set (default) and the device runs in
-`BLE_MODE_GATT` **with** `DEEP_SLEEP_ENABLED`, HiveScale acts as the schedule
-master. The custom HiveInside service exposes a third, **writable**
-characteristic:
+When `HIVEINSIDE_SYNC_ENABLED` is set (default) **with** `DEEP_SLEEP_ENABLED`,
+HiveScale acts as the schedule master. The custom HiveInside service exposes a
+third, **writable** characteristic:
 
 | UUID | Properties | Payload |
 |---|---|---|
@@ -66,7 +60,7 @@ Each cycle HiveScale connects, reads `8e8b0002-…`, then writes the next sleep
 duration to `8e8b0003-…` (computed from its own send interval, so it tracks
 remote interval changes automatically). On the following deep sleep HiveInside
 honours that value instead of `MEASURE_INTERVAL_MS`, waking just before
-HiveScale's next scan rather than advertising continuously.
+HiveScale's next scan rather than staying connectable continuously.
 
 Because the deep-sleep timer drifts (±5–10% on the internal RC oscillator) and
 HiveScale's hint subtracts a small lead, HiveInside stays connectable for
@@ -126,38 +120,42 @@ simply omitted.
 > For a proper deployment, the production HiveInside path uses a real fuel gauge
 > rather than a divider — this divider is just enough for prototype telemetry.
 
-## Manufacturer-data blob layout (advertising mode scan response)
+## Measurement JSON (GATT characteristic `8e8b0002-…`)
 
-Little-endian, company id `0xFFFF`, so a HiveScale-side parser (mirroring
-`firmware/src/ble_sensor.cpp`) can decode it:
+The full measurement is published as a compact JSON string on the custom
+characteristic (read or notify). It is trimmed to stay under the 512-byte ATT
+limit and to carry exactly the fields the HiveScale GATT reader
+(`firmware/src/ble_sensor.cpp::gattReadHiveInside`) consumes:
 
-| Offset | Type | Field | Scale |
-|---:|---|---|---|
-| 0 | u16 | company id (0xFFFF) | — |
-| 2 | u8 | blob version (0x01) | — |
-| 3 | u8 | flags: bit0 sht, bit1 accel, bit2 mic, bit3 batt | — |
-| 4 | i16 | temperature °C | ×100 |
-| 6 | u16 | humidity % | ×100 |
-| 8 | u16 | battery mV | ×1 |
-| 10 | u8 | battery % | ×1 |
-| 11 | u16 | accel RMS mg | ×10 |
-| 13 | u16 | accel peak mg | ×10 |
-| 15 | u16 | accel band swarm mg | ×10 |
-| 17 | u16 | accel band fanning mg | ×10 |
-| 19 | u16 | accel band activity mg | ×10 |
-| 21 | i8 | mic RMS dBFS | ×1 |
-| 22 | i8 | mic peak dBFS | ×1 |
-| 23 | i8 | mic sub-bass dBFS | ×1 |
-| 24 | i8 | mic hum dBFS | ×1 |
-| 25 | i8 | mic piping dBFS | ×1 |
-| 26 | i8 | mic stress dBFS | ×1 |
-| 27 | i8 | mic high dBFS | ×1 |
+| Field | Units |
+|---|---|
+| `fw` | firmware version string |
+| `packet_id` | uint8, de-duplication |
+| `temp_c` | °C |
+| `humidity_percent` | % |
+| `accel_ok` | bool |
+| `accel_rms_mg`, `accel_peak_mg` | mg |
+| `accel_band_swarm_mg` (8–30 Hz) | mg |
+| `accel_band_fanning_mg` (30–100 Hz) | mg |
+| `accel_band_activity_mg` (100–200 Hz) | mg |
+| `mic_ok` | bool |
+| `mic_rms_dbfs` | dBFS |
+| `mic_band_sub_bass_dbfs` (50–150 Hz) | dBFS |
+| `mic_band_hum_dbfs` (150–300 Hz) | dBFS |
+| `mic_band_piping_dbfs` (300–550 Hz) | dBFS |
+| `mic_band_stress_dbfs` (550–1500 Hz) | dBFS |
+| `mic_band_high_dbfs` (1500–3000 Hz) | dBFS |
+| `battery_percent` | % |
+
+Temperature, humidity and battery are also exposed on the standard
+Environmental-Sensing (0x181A) and Battery (0x180F) services for generic
+clients. `NaN` fields serialise as `null` ("field absent").
 
 ## Status & caveats
 
 🚧 **Prototype, not yet hardware-validated.** The sensor/FFT modules are ported
 from the field-tested HiveScale code; the BLE layer (NimBLE 2.x on the C6) and
 pin map are new and need a bench check. Calibrate `VBAT_DIVIDER` against your
-divider, and verify the BTHome packet in Home Assistant / nRF Connect on first
-flash. If NimBLE fails to init on your core version, update the
-`h2zero/NimBLE-Arduino` pin in `platformio.ini`.
+divider, and verify the GATT characteristics in nRF Connect on first flash. If
+NimBLE fails to init on your core version, update the `h2zero/NimBLE-Arduino`
+pin in `platformio.ini`.

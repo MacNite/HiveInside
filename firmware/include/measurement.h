@@ -1,9 +1,9 @@
 // measurement.h — one full sensor snapshot, shared by every module.
 //
-// The sensor modules fill this struct; the BLE module serialises it (as BTHome
-// service data + manufacturer blob in advertising mode, or as a JSON / binary
-// GATT characteristic in GATT mode). Keeping one plain struct means the FFT /
-// capture code is completely independent of the BLE transport.
+// The sensor modules fill this struct; the BLE module serialises it (as a JSON
+// GATT characteristic, plus the standard Battery / Environmental-Sensing
+// characteristics). Keeping one plain struct means the FFT / capture code is
+// completely independent of the BLE transport.
 #pragma once
 
 #include <Arduino.h>
@@ -51,6 +51,6 @@ struct Measurement {
   float battery_v = NAN;
   uint8_t battery_pct = 0;
 
-  // Monotonically increasing per boot — BTHome packet id for de-duplication.
+  // Monotonically increasing per boot — packet id for de-duplication.
   uint8_t packet_id = 0;
 };
