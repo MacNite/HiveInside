@@ -18,7 +18,21 @@
 // Identity / timing
 // ---------------------------------------------------------------------------
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.1.0-esp32c6"
+#define HIVEINSIDE_FW_VERSION "0.2.0-esp32c6"
+#endif
+
+// ---------------------------------------------------------------------------
+// Firmware-over-BLE (OTA). HiveScale (the WiFi node) downloads a new HiveInside
+// image and streams it into this device's OTA GATT characteristics; the device
+// writes it to the inactive OTA slot, verifies an end-to-end CRC-32 and reboots
+// into it. Requires a dual-OTA partition table (board_build.partitions in
+// platformio.ini). See docs/ota-over-ble.md.
+//
+// While an OTA is RECEIVING (or a verified image is pending reboot) the device
+// suppresses deep sleep so the transfer can complete.
+// ---------------------------------------------------------------------------
+#ifndef HIVEINSIDE_OTA_ENABLED
+#define HIVEINSIDE_OTA_ENABLED 1
 #endif
 
 // BLE local name — what nRF Connect / a central shows. Keep it short so it fits

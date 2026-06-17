@@ -6,6 +6,7 @@
 // peak). Read or subscribe-to-notify.
 #pragma once
 
+#include "config.h"   // HIVEINSIDE_SYNC_ENABLED / HIVEINSIDE_OTA_ENABLED
 #include "measurement.h"
 
 namespace ble {
@@ -35,5 +36,18 @@ const char* modeName();
 bool syncWakeMs(uint64_t* outMs);
 // True while a central is connected (so the listen window waits for the write).
 bool isCentralConnected();
+#endif
+
+#if HIVEINSIDE_OTA_ENABLED
+// Firmware-over-BLE: HiveScale streams a new image into the OTA characteristics
+// of the custom HiveInside service (created in begin()). These let main.cpp keep
+// the device awake during a transfer and reboot into the new image afterwards.
+
+// True while an OTA is actively receiving, or a verified image is staged and the
+// reboot is pending. main.cpp uses this to suppress deep sleep / periodic work.
+bool isOtaActive();
+// Pump the OTA state machine: when a verified image is staged, reboot into it.
+// Call once per loop() iteration; no-op when no OTA is in progress.
+void loopOta();
 #endif
 } // namespace ble
