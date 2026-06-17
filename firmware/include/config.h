@@ -108,6 +108,39 @@
 #endif
 
 // ---------------------------------------------------------------------------
+// Wake synchronisation (HiveScale is the schedule master). GATT mode only.
+//
+// When HIVEINSIDE_SYNC_ENABLED and BLE_MODE_GATT, HiveScale writes a uint32 LE
+// "sleep this many seconds" value to a writable characteristic during the
+// connection it already makes each cycle. On the next deep sleep HiveInside uses
+// that value instead of MEASURE_INTERVAL_MS, so it wakes just before HiveScale's
+// next scan instead of advertising continuously. If no value is written during a
+// wake (e.g. HiveScale missed the connection), it falls back to
+// MEASURE_INTERVAL_MS so the device never sleeps indefinitely.
+//
+// Because the deep-sleep timer drifts (±5–10% on the internal RC oscillator) and
+// HiveScale's hint already subtracts a lead, the device must stay awake and
+// connectable for SYNC_LISTEN_MS after each wake to be sure it overlaps
+// HiveScale's scan + connect. This replaces ADV_BURST_MS as the awake window
+// when sync is active; once the central connects, writes the next hint and
+// disconnects, the device sleeps immediately without waiting out the window.
+#ifndef HIVEINSIDE_SYNC_ENABLED
+#define HIVEINSIDE_SYNC_ENABLED 1
+#endif
+
+#ifndef SYNC_LISTEN_MS
+#define SYNC_LISTEN_MS 45000UL   // 45 s awake/connectable window per synced wake
+#endif
+
+// Guard rails on a received sync value, in case of a bad/garbage write.
+#ifndef SYNC_MIN_SLEEP_MS
+#define SYNC_MIN_SLEEP_MS (30UL * 1000UL)
+#endif
+#ifndef SYNC_MAX_SLEEP_MS
+#define SYNC_MAX_SLEEP_MS (24UL * 60UL * 60UL * 1000UL)
+#endif
+
+// ---------------------------------------------------------------------------
 // Pin map — ESP32-C6 SuperMini (override any of these in platformio.ini).
 //
 // ADC1 lives on GPIO0..GPIO6 on the C6, so the battery sense pin must be one of

@@ -32,4 +32,16 @@ void enterPairingMode();
 bool isPairingActive();
 // Human-readable name of the active mode, for logging.
 const char* modeName();
+
+#if BLE_MODE == BLE_MODE_GATT && HIVEINSIDE_SYNC_ENABLED
+// Wake synchronisation (GATT mode): HiveScale writes the seconds to sleep before
+// the next connection into a writable characteristic. These let main.cpp decide
+// the deep-sleep duration and when the listen window can end early.
+
+// If HiveScale wrote a wake-sync value during this awake period, store the
+// requested sleep (clamped to SYNC_MIN/MAX_SLEEP_MS) in *outMs and return true.
+bool syncWakeMs(uint64_t* outMs);
+// True while a central is connected (so the listen window waits for the write).
+bool isCentralConnected();
+#endif
 } // namespace ble

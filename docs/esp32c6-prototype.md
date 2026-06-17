@@ -50,6 +50,32 @@ force an immediate refresh). Scan with the **BTHome** integration in Home
 Assistant or with nRF Connect. In GATT mode, connect with nRF Connect and read
 the `8e8b0002-…` characteristic for the full JSON.
 
+### Wake synchronisation (GATT mode)
+
+When `HIVEINSIDE_SYNC_ENABLED` is set (default) and the device runs in
+`BLE_MODE_GATT` **with** `DEEP_SLEEP_ENABLED`, HiveScale acts as the schedule
+master. The custom HiveInside service exposes a third, **writable**
+characteristic:
+
+| UUID | Properties | Payload |
+|---|---|---|
+| `8e8b0002-…` | read / notify | full measurement JSON |
+| `8e8b0003-…` | write / read | `uint32` little-endian — seconds to deep-sleep before the next connection |
+
+Each cycle HiveScale connects, reads `8e8b0002-…`, then writes the next sleep
+duration to `8e8b0003-…` (computed from its own send interval, so it tracks
+remote interval changes automatically). On the following deep sleep HiveInside
+honours that value instead of `MEASURE_INTERVAL_MS`, waking just before
+HiveScale's next scan rather than advertising continuously.
+
+Because the deep-sleep timer drifts (±5–10% on the internal RC oscillator) and
+HiveScale's hint subtracts a small lead, HiveInside stays connectable for
+`SYNC_LISTEN_MS` (45 s) after each wake to guarantee the scan/connect overlaps;
+once the central has written the hint and disconnected, it sleeps immediately.
+If no value is written during a wake (HiveScale missed the connection), it falls
+back to `MEASURE_INTERVAL_MS`, so a missed cycle never leaves it asleep forever.
+Received values are clamped to `[SYNC_MIN_SLEEP_MS, SYNC_MAX_SLEEP_MS]`.
+
 ### Serial output
 
 The SuperMini's USB-C is the C6's **native USB Serial/JTAG**, so the build
