@@ -44,9 +44,19 @@ pio run -e c6_advertising -t upload   # BTHome broadcast
 pio run -e c6_gatt        -t upload   # connectable GATT server
 ```
 
-In advertising mode, scan with the **BTHome** integration in Home Assistant or
-with nRF Connect. In GATT mode, connect with nRF Connect and read the
-`8e8b0002-…` characteristic for the full JSON.
+In advertising mode the device advertises **continuously** (refreshing the
+payload every `MEASURE_INTERVAL_MS`, default 5 min — press the BOOT button to
+force an immediate refresh). Scan with the **BTHome** integration in Home
+Assistant or with nRF Connect. In GATT mode, connect with nRF Connect and read
+the `8e8b0002-…` characteristic for the full JSON.
+
+### Serial output
+
+The SuperMini's USB-C is the C6's **native USB Serial/JTAG**, so the build
+enables `ARDUINO_USB_CDC_ON_BOOT` (in `platformio.ini`) to route `Serial` there.
+Open the monitor at 115200 baud (`pio device monitor` or `pio run -t monitor`).
+Without that flag, `Serial.*` goes to the UART0 TX/RX pins instead and nothing
+appears over USB.
 
 ## Wiring (default pins — override in `platformio.ini`)
 
