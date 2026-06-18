@@ -20,3 +20,6 @@
 *-bak
 *.bak
 fp-info-cache
+
+# Claude Code delivery bundles
+claude-bundles/
