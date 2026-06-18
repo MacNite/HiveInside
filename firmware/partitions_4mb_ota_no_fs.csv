@@ -1,0 +1,12 @@
+# 4MB ESP32-C6 partition table for HiveInside: dual OTA app slots, no big FS.
+# HiveInside keeps no on-device data log (measurements stream out over BLE), so
+# flash is given to the two OTA app slots for firmware-over-BLE updates. Each app
+# slot is 0x1F0000 = 2,031,616 bytes — ample for the NimBLE + FFT + sensors image.
+# Mirrors HiveScale/firmware/partitions_4mb_ota_no_fs.csv so both devices share
+# the same OTA layout.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1F0000,
+app1,     app,  ota_1,   0x200000, 0x1F0000,
+spiffs,   data, spiffs,  0x3F0000, 0x10000,

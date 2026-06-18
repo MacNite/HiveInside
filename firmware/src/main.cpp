@@ -146,6 +146,17 @@ void setup() {
 }
 
 void loop() {
+#if HIVEINSIDE_OTA_ENABLED
+  // A firmware-over-BLE transfer is driven entirely by the NimBLE callbacks; the
+  // main loop just stays out of the way (no measurement, no deep sleep) until it
+  // finishes, then loopOta() reboots into the verified image.
+  ble::loopOta();
+  if (ble::isOtaActive()) {
+    delay(10);
+    return;
+  }
+#endif
+
   int b = digitalRead(PIN_BUTTON);
 
   // Falling edge: record press start (with debounce).
