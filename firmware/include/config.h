@@ -18,7 +18,7 @@
 // Identity / timing
 // ---------------------------------------------------------------------------
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.2.0-esp32c6"
+#define HIVEINSIDE_FW_VERSION "0.3.0"
 #endif
 
 // ---------------------------------------------------------------------------
