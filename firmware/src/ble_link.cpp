@@ -47,7 +47,8 @@ static unsigned long s_pairingUntilMs = 0;
 
 void enterPairingMode() {
   s_pairingUntilMs = millis() + PAIRING_WINDOW_MS;
-  Serial.printf("[BLE] Pairing window open for %lus\n", PAIRING_WINDOW_MS / 1000UL);
+  Serial.printf("[BLE] Pairing window open for %lu min (%lus)\n",
+                PAIRING_WINDOW_MS / 60000UL, PAIRING_WINDOW_MS / 1000UL);
 }
 
 bool isPairingActive() {

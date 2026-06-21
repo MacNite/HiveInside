@@ -92,12 +92,15 @@
 // Pairing mode — activated by a long button press (PAIRING_LONG_PRESS_MS).
 //
 // During the pairing window the device suppresses deep sleep so HiveScale's
-// provisioning portal can scan and discover its MAC address. The device is
-// already advertising as connectable; the pairing window just keeps it awake.
-// A fast LED blink indicates the window is open.
+// provisioning portal can scan, discover its MAC address and complete the sync.
+// The device is already advertising as connectable; the pairing window just
+// keeps it awake. A fast LED blink indicates the window is open.
+//
+// 15 minutes gives HiveScale ample time to scan, connect, read the first
+// measurement and write the initial wake-sync schedule.
 // ---------------------------------------------------------------------------
 #ifndef PAIRING_WINDOW_MS
-#define PAIRING_WINDOW_MS (60UL * 1000UL)   // 60 s visible for pairing
+#define PAIRING_WINDOW_MS (15UL * 60UL * 1000UL)   // 15 min visible for pairing
 #endif
 
 #ifndef PAIRING_LONG_PRESS_MS
