@@ -11,9 +11,11 @@
 //   LP-capable).
 //
 // Pairing mode (long press >= PAIRING_LONG_PRESS_MS on PIN_BUTTON):
-//   Suppresses sleep for PAIRING_WINDOW_MS and blinks the LED fast so the user
-//   knows the device is discoverable. Short press still forces an immediate
-//   measurement. Pairing itself is done on the HiveScale provisioning portal.
+//   Suppresses sleep for PAIRING_WINDOW_MS (15 min) and blinks the LED fast so
+//   the user knows the device is discoverable. HiveScale has the full window to
+//   scan, connect, read the first measurement and write the wake-sync schedule.
+//   Short press still forces an immediate measurement.
+//   Pairing itself is done on the HiveScale provisioning portal.
 #include <Arduino.h>
 #include <Wire.h>
 
