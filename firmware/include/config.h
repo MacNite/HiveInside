@@ -1,15 +1,16 @@
-// config.h — HiveInside ESP32-C6 prototype: pins, sensor settings, BLE mode.
+// config.h — HiveInside XIAO ESP32-C6 prototype: pins, sensor settings, BLE mode.
 //
 // This is a *prototype* firmware that brings the HiveInside sensor suite up on
-// cheap, widely-available parts before the nRF52840 production board:
+// cheap, widely-available parts before the XIAO nRF52840 final board:
 //
-//   * ESP32-C6 SuperMini   — MCU + BLE 5 (Bluetooth LE) radio
+//   * Seeed XIAO ESP32-C6  — MCU + BLE 5 (Bluetooth LE) radio, USB-C, LiPo charger
 //   * LIS3DH               — 3-axis accelerometer (I2C)        -> swarm vibration
 //   * SHT40                — temperature + humidity (I2C)
 //   * INMP441              — I2S MEMS microphone               -> acoustic FFT
 //
-// All values can be overridden from platformio.ini build_flags so you can wire
-// the breakouts to whatever pins are convenient without editing this file.
+// Default pins use the XIAO's labelled header pads (D4/D5 = I2C, D6-D8 = I2S,
+// A0 = battery sense). All values can be overridden from platformio.ini
+// build_flags so you can wire the breakouts to whatever pins are convenient.
 #pragma once
 
 #include <Arduino.h>
@@ -75,7 +76,8 @@
 //   Only LP IO pins (GPIO0–7) can wake the chip from deep sleep via ext1.
 //   GPIO9 (the on-board BOOT button) is NOT an LP IO pin and CANNOT be used
 //   as a wake source. To enable button-from-sleep, wire a separate button to
-//   a GPIO0–7 pin and set PIN_WAKE_BUTTON to that pin number.
+//   an LP-capable pad — on the XIAO that's D0–D2 (GPIO0–2) — and set
+//   PIN_WAKE_BUTTON to that GPIO number.
 //   PIN_WAKE_BUTTON = -1 (default) disables button-from-sleep wakeup.
 // ---------------------------------------------------------------------------
 #ifndef DEEP_SLEEP_ENABLED
@@ -152,18 +154,19 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// Pin map — ESP32-C6 SuperMini (override any of these in platformio.ini).
+// Pin map — Seeed XIAO ESP32-C6 (override any of these in platformio.ini).
 //
-// ADC1 lives on GPIO0..GPIO6 on the C6, so the battery sense pin must be one of
-// those; I2C and I2S can be routed to any GPIO via the IO-MUX/GPIO matrix.
-// The defaults below avoid the strapping pins (GPIO8/GPIO9 = boot LED / BOOT
-// button) for sensor signals and reuse the on-board BOOT button for "identify".
+// Defaults use the XIAO's labelled header pads. ADC1 lives on GPIO0..GPIO6, so
+// battery sense uses A0 (GPIO0); I2C and I2S route to any GPIO via the GPIO
+// matrix. GPIO3/GPIO14 drive the XIAO's internal RF switch and are NOT on the
+// header, so they are avoided. The on-board BOOT button (GPIO9) is reused for
+// "identify"; the user LED is GPIO15.
 // ---------------------------------------------------------------------------
 #ifndef PIN_I2C_SDA
-#define PIN_I2C_SDA 6
+#define PIN_I2C_SDA 22   // D4 (XIAO default SDA)
 #endif
 #ifndef PIN_I2C_SCL
-#define PIN_I2C_SCL 7
+#define PIN_I2C_SCL 23   // D5 (XIAO default SCL)
 #endif
 
 // I2C bus clock. Default to the conservative 100 kHz "standard mode" for
@@ -179,13 +182,13 @@
 
 // INMP441 I2S (SD has a 100k pull-down on most breakouts; L/R tied to GND = left)
 #ifndef PIN_I2S_BCLK
-#define PIN_I2S_BCLK 2
+#define PIN_I2S_BCLK 16  // D6
 #endif
 #ifndef PIN_I2S_WS
-#define PIN_I2S_WS 3
+#define PIN_I2S_WS 17    // D7
 #endif
 #ifndef PIN_I2S_SD
-#define PIN_I2S_SD 4
+#define PIN_I2S_SD 19    // D8
 #endif
 
 // On-board BOOT button (active-low). Short press = publish now / connectable.
@@ -193,29 +196,30 @@
 #define PIN_BUTTON 9
 #endif
 
-// On-board LED (active-low on most SuperMini clones). Used as a heartbeat.
+// On-board user LED (GPIO15 on the XIAO ESP32-C6, active-low). Used as a heartbeat.
 #ifndef PIN_LED
-#define PIN_LED 8
+#define PIN_LED 15
 #endif
 #ifndef LED_ACTIVE_LOW
 #define LED_ACTIVE_LOW 1
 #endif
 
 // ---------------------------------------------------------------------------
-// Battery monitoring (optional). See docs — the ESP32-C6 SuperMini has NO
-// on-board charger or battery-sense divider on its BAT pads, so monitoring
-// needs an external resistor divider from BAT+ to an ADC1 GPIO.
+// Battery monitoring (optional). The XIAO ESP32-C6 charges a LiPo over USB-C
+// (on-board charger) but has NO battery-sense divider, so reading the cell
+// needs an external resistor divider from BAT+ to an ADC1 pad. See docs.
 // ---------------------------------------------------------------------------
 #ifndef ENABLE_BATTERY
 #define ENABLE_BATTERY 1
 #endif
 
-// ADC1-capable GPIO the external divider feeds (GPIO0..GPIO6 on the C6).
+// ADC1-capable pad the external divider feeds. A0 (GPIO0) is the conventional
+// XIAO battery-sense pad (ADC1 spans GPIO0..GPIO6).
 #ifndef PIN_VBAT_ADC
-#define PIN_VBAT_ADC 1
+#define PIN_VBAT_ADC 0
 #endif
 
-// Divider ratio Vbat/Vadc. 2.0 = two equal resistors (e.g. 100k/100k).
+// Divider ratio Vbat/Vadc. 2.0 = two equal resistors (e.g. 220k/220k).
 #ifndef VBAT_DIVIDER
 #define VBAT_DIVIDER 2.0f
 #endif

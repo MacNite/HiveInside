@@ -1,45 +1,33 @@
 # Flashing HiveInside
 
-## Prototype: Nice!Nano v2 (no programmer needed)
+Both target boards flash over **USB-C with no external programmer** — that's a
+deliberate reason for choosing the XIAO modules.
 
-The Nice!Nano ships with a UF2 bootloader, so you flash over USB:
+## Prototype: XIAO ESP32-C6
 
-1. Open `firmware/` in **VSCodium** with the **PlatformIO** extension.
-2. Connect the board via USB-C.
-3. Run **PlatformIO: Upload** (env `nice_nano`), or on the CLI:
-   ```bash
-   pio run -e nice_nano -t upload
-   ```
-4. If upload can't find the port, double-tap **RESET** to force the bootloader;
-   the board mounts as a USB drive and PlatformIO copies the `.uf2` across.
+The C6 flashes over its native USB. In [`firmware/`](../firmware):
 
-## Production: bare Ebyte E73 custom PCB
-
-A bare nRF52840 has no bootloader, so the **first** flash needs an SWD
-programmer. Recommended: **nRF52840-DK** (~$25, has an on-board J-Link that can
-program external targets) or a J-Link.
-
-Wire the DK's debug-out header to the PCB's 4-pin SWD header:
-
-| Programmer | PCB SWD header |
-|---|---|
-| VTG / VDD | VDD (3.0 V) |
-| SWDIO | SWDIO (pad 37) |
-| SWDCLK | SWDCLK (pad 39) |
-| GND | GND |
-
-Then:
 ```bash
-pio run -e e73_custom -t upload
+pio run -e c6_gatt -t upload
 ```
 
-### Optional: install a UF2 bootloader once
+or use **PlatformIO: Upload** in VSCodium. If the port isn't found, hold **BOOT**,
+tap **RESET**, then release BOOT to enter download mode and upload again.
 
-After the first SWD flash you can program the Adafruit nRF52 UF2 bootloader, and
-from then on update over USB like the Nice!Nano — provided the board exposes a
-USB port (VBUS/D+/D− on the E73).
+## Final: XIAO nRF52840
 
-## Note: this is a Nordic chip, not an ESP32
+The XIAO nRF52840 ships with the **Adafruit nRF52 UF2 bootloader**, so it flashes
+like a USB drive — no SWD/J-Link needed even for the first flash:
 
-Unlike the HiveScale ESP32 firmware, there is **no serial/UART flashing** for a
-fresh nRF52840 — it's SWD or (after bootloader) USB/UF2 only.
+1. Double-tap **RESET** to enter the bootloader; a `XIAO-SENSE` (or `XIAO BLE`)
+   USB drive appears.
+2. Copy the `.uf2` across (PlatformIO / Arduino can also upload directly), and the
+   board reboots into the new firmware.
+
+> The nRF52840 firmware target is the planned final build; today the buildable
+> project is the ESP32-C6 prototype above. Using a XIAO module rather than a bare
+> nRF52840 is what removes the SWD-programmer step — a bare chip has no
+> bootloader and would need a J-Link/DK for its first flash.
+
+After deployment, both boards also update over the air — see
+[`ota-over-ble.md`](ota-over-ble.md).
