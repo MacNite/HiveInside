@@ -14,7 +14,7 @@ This mirrors the way HiveScale already relays a BeeCounter image over I²C
 
 ## Why a streaming relay
 
-A HiveInside ESP32-C6 image is well over 1 MB. The HiveScale ESP32 (WROOM, no
+A HiveInside XIAO ESP32-C6 image is well over 1 MB. The HiveScale ESP32 (WROOM, no
 PSRAM) cannot buffer that in RAM, so HiveScale **streams** the HTTPS download
 straight into the GATT characteristics a chunk at a time and never holds the
 whole image. HiveInside likewise buffers nothing: each chunk is written directly
@@ -102,5 +102,6 @@ During a transfer HiveInside suppresses deep sleep and skips measurement
 * Transfer time is roughly `image_size / (chunk × writes-per-second)`. With a
   negotiated MTU of ~247 (chunk ≈ 244 B) and write-with-response flow control,
   expect a few minutes for a ~1.3 MB image — acceptable for an infrequent update.
-* This is prototype firmware (ESP32-C6 bring-up board). The production nRF52840
-  board will carry the same protocol so the HiveScale side does not change.
+* This is prototype firmware (XIAO ESP32-C6). The final XIAO nRF52840 board will
+  carry the same GATT protocol so the HiveScale side does not change, even though
+  its on-device flash handling (nRF52 DFU rather than ESP `Update.h`) differs.

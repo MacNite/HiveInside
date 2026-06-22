@@ -1,7 +1,7 @@
 // accel.h — low-frequency hive-vibration capture from a single LIS3DH.
 //
 // Ported from the HiveScale firmware (firmware/src/accel.cpp). The LIS3DH and
-// the production LIS2DH12 share WHO_AM_I (0x33) and the full register map, so
+// the final-board LIS2DH12 share WHO_AM_I (0x33) and the full register map, so
 // this register-level driver drives either unchanged. We capture a block of
 // |a| samples at a fixed ODR, remove DC (gravity + mounting bias) and report a
 // broadband AC RMS/peak plus the energy in three sub-audible bands — the
