@@ -62,13 +62,27 @@ remote interval changes automatically). On the following deep sleep HiveInside
 honours that value instead of `MEASURE_INTERVAL_MS`, waking just before
 HiveScale's next scan rather than staying connectable continuously.
 
-Because the deep-sleep timer drifts (±5–10% on the internal RC oscillator) and
-HiveScale's hint subtracts a small lead, HiveInside stays connectable for
-`SYNC_LISTEN_MS` (45 s) after each wake to guarantee the scan/connect overlaps;
-once the central has written the hint and disconnected, it sleeps immediately.
-If no value is written during a wake (HiveScale missed the connection), it falls
-back to `MEASURE_INTERVAL_MS`, so a missed cycle never leaves it asleep forever.
-Received values are clamped to `[SYNC_MIN_SLEEP_MS, SYNC_MAX_SLEEP_MS]`.
+Both deep-sleep timers free-run on the internal ~150 kHz RC oscillator, which
+drifts several percent with temperature, so the rendezvous has slack on both
+sides. HiveScale subtracts `HIVEINSIDE_SYNC_LEAD_S` (60 s) from the interval so
+HiveInside wakes *before* the scan (covers HiveInside waking late), and HiveInside
+then stays connectable for `SYNC_LISTEN_MS` (150 s) so it is still up if HiveScale
+arrives late (covers HiveInside waking early). HiveScale also anchors its own
+sleep to the start of each boot (not the variable end of the upload cycle), so the
+scan recurs on a stable cadence. Once the central has written the hint and
+disconnected, HiveInside sleeps immediately — the long listen window therefore
+costs extra awake time **only on a missed cycle**, not on a healthy one.
+
+If no value is written during a wake (HiveScale missed the connection), HiveInside
+falls back to the **last cadence HiveScale gave it** (retained in RTC memory across
+deep sleep) rather than `MEASURE_INTERVAL_MS`, so a single miss keeps both devices
+on the same period while they re-acquire instead of drifting onto two different
+intervals. `MEASURE_INTERVAL_MS` only applies before the very first sync after a
+cold boot. Received values are clamped to `[SYNC_MIN_SLEEP_MS, SYNC_MAX_SLEEP_MS]`.
+
+The `[SYNC] … awake Nms` serial line on HiveInside and the `wake-sync written …
+at boot+Nms` / `Scanning … at boot+Nms` lines on HiveScale let you measure the
+real per-cycle drift in the field and re-tune the 60 s / 150 s pair if needed.
 
 ### Serial output
 

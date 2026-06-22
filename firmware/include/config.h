@@ -129,7 +129,18 @@
 #endif
 
 #ifndef SYNC_LISTEN_MS
-#define SYNC_LISTEN_MS 45000UL   // 45 s awake/connectable window per synced wake
+// 150 s awake/connectable window per synced wake. Sized — together with
+// HiveScale's HIVEINSIDE_SYNC_LEAD_S (60 s) — to absorb one interval of
+// RC-oscillator drift between the two free-running deep-sleep timers (the
+// internal ~150 kHz RC clock drifts several percent with temperature, so a
+// 10-min interval can slip tens of seconds per cycle).
+//
+// IMPORTANT — this window is only fully consumed on a MISSED rendezvous: in the
+// normal case the device sleeps the instant HiveScale connects, writes the next
+// hint and disconnects (see main.cpp: windowMs = 0). So a longer window costs
+// extra awake time only on the cycles it actually rescues. Tune from the
+// "[SYNC] ... awake Nms" logs once you have field drift numbers.
+#define SYNC_LISTEN_MS 150000UL
 #endif
 
 // Guard rails on a received sync value, in case of a bad/garbage write.
