@@ -21,6 +21,7 @@
 
 #if DEEP_SLEEP_ENABLED
 #include "esp_sleep.h"
+#include "esp_attr.h"   // RTC_DATA_ATTR: retain the wake-sync cadence across deep sleep
 #endif
 
 #include "config.h"
@@ -36,6 +37,14 @@ static uint8_t packetId = 0;
 static int lastButton = HIGH;
 static unsigned long buttonPressedAt = 0;
 static bool buttonLongFired = false;
+
+#if DEEP_SLEEP_ENABLED && HIVEINSIDE_SYNC_ENABLED
+// Retained across deep sleep (RTC slow memory): the last sleep duration HiveScale
+// told us to use. On a missed rendezvous we fall back to THIS — HiveScale's own
+// cadence — instead of MEASURE_INTERVAL_MS, so the two devices keep the same
+// period while re-acquiring rather than free-running at two different intervals.
+RTC_DATA_ATTR static uint64_t s_lastSyncSleepMs = 0;
+#endif
 
 static void led(bool on) {
 #if defined(PIN_LED)
@@ -86,7 +95,8 @@ static void runCycle() {
 
 #if DEEP_SLEEP_ENABLED
 static void enterDeepSleep(uint64_t sleepMs) {
-  Serial.printf("[SLEEP] Entering deep sleep for %lu s\n", (unsigned long)(sleepMs / 1000ULL));
+  Serial.printf("[SLEEP] Entering deep sleep for %lu s (after %lu ms awake)\n",
+                (unsigned long)(sleepMs / 1000ULL), (unsigned long)millis());
   Serial.flush();
   ble::shutdown();
   Wire.end();
@@ -209,18 +219,31 @@ void loop() {
   // Synced wake: stay connectable for the (longer) listen window so HiveScale's
   // scan + connect can land, then sleep for the duration it told us. If a value
   // already arrived this wake and the central has disconnected, sleep right away
-  // rather than burning the rest of the window. With no value (HiveScale missed
-  // us), fall back to MEASURE_INTERVAL_MS via the default above.
+  // rather than burning the rest of the window.
+  bool gotSync = false;
   if (!ble::isPairingActive()) {
     windowMs = SYNC_LISTEN_MS;
+    // Missed-rendezvous fallback: prefer the last cadence HiveScale gave us
+    // (retained across deep sleep) over MEASURE_INTERVAL_MS, so a single missed
+    // connection doesn't put the two devices on different periods. The hard-coded
+    // interval only applies before the very first sync after a cold boot.
+    if (s_lastSyncSleepMs) sleepMs = s_lastSyncSleepMs;
     uint64_t syncMs = 0;
-    if (ble::syncWakeMs(&syncMs)) {
+    gotSync = ble::syncWakeMs(&syncMs);
+    if (gotSync) {
       sleepMs = syncMs;
+      s_lastSyncSleepMs = syncMs;        // remember for the next missed rendezvous
       if (!ble::isCentralConnected()) windowMs = 0;  // schedule in hand → sleep now
     }
   }
 #endif
   if (millis() - lastMeasure >= windowMs) {
+#if HIVEINSIDE_SYNC_ENABLED
+    Serial.printf("[SYNC] %s; awake %lums; central=%d; next sleep %lus\n",
+                  gotSync ? "wake-sync received" : "MISSED (fallback cadence)",
+                  (unsigned long)millis(), (int)ble::isCentralConnected(),
+                  (unsigned long)(sleepMs / 1000ULL));
+#endif
     enterDeepSleep(sleepMs);
   }
 #endif
