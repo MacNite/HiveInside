@@ -18,7 +18,7 @@
 // Identity / timing
 // ---------------------------------------------------------------------------
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.3.3"
+#define HIVEINSIDE_FW_VERSION "0.3.4"
 #endif
 
 // ---------------------------------------------------------------------------
