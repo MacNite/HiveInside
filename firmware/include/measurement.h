@@ -38,7 +38,7 @@ struct Measurement {
   float accel_peak_mg = NAN; // peak |a − mean|
   AccelBands accel_bands;
 
-  // ── Acoustics (INMP441) ──
+  // ── Acoustics (MP34DT01 / MP34DT06 PDM) ──
   bool mic_ok = false;
   uint32_t mic_sample_rate_hz = 0;
   float mic_rms_dbfs = NAN;

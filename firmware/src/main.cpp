@@ -1,8 +1,8 @@
 // main.cpp — HiveInside ESP32-C6 prototype top level.
 //
 // Cycle: read SHT40 (temp/humidity) -> capture LIS3DH vibration FFT -> capture
-// INMP441 acoustic FFT -> read battery -> publish over BLE (connectable GATT
-// server — see ble_link.cpp).
+// MP34DT01 PDM acoustic FFT -> read battery -> publish over BLE (connectable
+// GATT server — see ble_link.cpp).
 //
 // Deep sleep (DEEP_SLEEP_ENABLED=1, default OFF):
 //   After each cycle the device stays connectable for CONNECT_WINDOW_MS then

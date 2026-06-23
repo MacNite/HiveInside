@@ -1,22 +1,27 @@
-// mic.cpp — INMP441 capture + FFT (mono). Ported from HiveScale mics.cpp.
+// mic.cpp — MP34DT01 / MP34DT06 PDM microphone capture + FFT (mono).
 //
-// Uses the channel-based IDF 5.x "standard" I2S driver (driver/i2s_std.h) that
-// Arduino-ESP32 3.x ships — the same driver path HiveScale moved to. We capture
-// 32-bit slots and shift right by 8 to recover the INMP441's 24-bit sample.
+// Replaces the previous INMP441 I2S path. An I2S mic clocked 24-bit samples out
+// on a BCLK/WS/SD bus; a PDM mic instead takes a single clock from the MCU and
+// returns a 1-bit pulse-density stream on one data line. The ESP32-C6 I2S
+// peripheral has a hardware PDM receiver (driver/i2s_pdm.h): it generates the
+// PDM clock and runs the incoming bitstream through a CIC decimation filter,
+// handing us ready-made 16-bit PCM at MIC_SAMPLE_RATE. So the FFT/band code is
+// unchanged apart from the full-scale reference (16-bit now, was 24-bit) and the
+// sample width — no per-sample >>8 shift is needed any more.
 #include "mic.h"
 
 #if ENABLE_MIC
 
 #include <math.h>
 #include <arduinoFFT.h>
-#include <driver/i2s_std.h>
+#include <driver/i2s_pdm.h>
 
 namespace mic {
 
 static i2s_chan_handle_t rxChan = nullptr;
 static bool installed = false;
 
-static constexpr float FULL_SCALE = 8388608.0f; // 2^23
+static constexpr float FULL_SCALE = 32768.0f; // 2^15 — PDM RX delivers 16-bit PCM
 static constexpr float SILENCE_DBFS = -200.0f;
 
 // Band energy in dBFS: total power of all bins in [loHz, hiHz] (Parseval sum,
@@ -40,7 +45,7 @@ static float bandEnergyDbfs(const double* mag, size_t fftSize, uint32_t sampleRa
   return (float)(20.0 * log10(sqrt(sumSq)));
 }
 
-static void computeBands(const int32_t* samples, size_t count, MicBands& out) {
+static void computeBands(const int16_t* samples, size_t count, MicBands& out) {
   double* vReal = (double*)malloc(MIC_FFT_SAMPLE_COUNT * sizeof(double));
   double* vImag = (double*)malloc(MIC_FFT_SAMPLE_COUNT * sizeof(double));
   if (!vReal || !vImag) {
@@ -49,8 +54,8 @@ static void computeBands(const int32_t* samples, size_t count, MicBands& out) {
     return;
   }
   size_t n = min(count, (size_t)MIC_FFT_SAMPLE_COUNT);
-  // Centre the block on its mean so the INMP441 DC bias doesn't leak through
-  // the Hann window side-lobes into the low bands.
+  // Centre the block on its mean so the PDM mic's residual DC offset doesn't leak
+  // through the Hann window side-lobes into the low bands.
   double mean = 0.0;
   for (size_t i = 0; i < n; i++) mean += (double)samples[i];
   if (n > 0) mean /= (double)n;
@@ -81,7 +86,7 @@ static void computeBands(const int32_t* samples, size_t count, MicBands& out) {
 bool begin() {
   if (installed) return true;
 
-  i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(MIC_I2S_PORT, I2S_ROLE_MASTER);
+  i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(MIC_PDM_PORT, I2S_ROLE_MASTER);
   chanCfg.dma_desc_num = 4;
   chanCfg.dma_frame_num = 256;
   chanCfg.auto_clear = false;
@@ -91,25 +96,25 @@ bool begin() {
     return false;
   }
 
-  // Mono: one INMP441 with L/R -> GND drives the LEFT slot. Reading a single
-  // slot halves the DMA traffic vs the stereo HiveScale build.
-  i2s_std_config_t stdCfg = {
-    .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(MIC_SAMPLE_RATE),
-    .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
+  // Mono PDM RX: one mic with SEL/LR -> GND drives the LEFT slot (it outputs its
+  // sample while the clock is low). The default PDM-RX clock is
+  // MIC_SAMPLE_RATE × 64 (1.024 MHz @ 16 kHz) — inside the MP34DT01/06's
+  // 1–3.25 MHz range — and the decimator yields 16-bit PCM.
+  i2s_pdm_rx_config_t pdmCfg = {
+    .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(MIC_SAMPLE_RATE),
+    .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
     .gpio_cfg = {
-      .mclk = I2S_GPIO_UNUSED,
-      .bclk = (gpio_num_t)PIN_I2S_BCLK,
-      .ws = (gpio_num_t)PIN_I2S_WS,
-      .dout = I2S_GPIO_UNUSED,
-      .din = (gpio_num_t)PIN_I2S_SD,
-      .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false},
+      .clk = (gpio_num_t)PIN_PDM_CLK,
+      .din = (gpio_num_t)PIN_PDM_DIN,
+      .invert_flags = { .clk_inv = false },
     },
   };
-  // INMP441 L/R = GND emits its sample in the LEFT slot.
-  stdCfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+  // SEL/LR = GND emits the sample in the LEFT slot. Tie SEL to VDD and switch
+  // this to I2S_PDM_SLOT_RIGHT to read the other channel.
+  pdmCfg.slot_cfg.slot_mask = I2S_PDM_SLOT_LEFT;
 
-  if (i2s_channel_init_std_mode(rxChan, &stdCfg) != ESP_OK) {
-    Serial.println("[MIC] init_std_mode failed");
+  if (i2s_channel_init_pdm_rx_mode(rxChan, &pdmCfg) != ESP_OK) {
+    Serial.println("[MIC] init_pdm_rx_mode failed");
     i2s_del_channel(rxChan); rxChan = nullptr;
     return false;
   }
@@ -119,8 +124,8 @@ bool begin() {
     return false;
   }
   installed = true;
-  Serial.printf("[MIC] I2S up: BCLK=%d WS=%d SD=%d rate=%d\n",
-                PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_SD, MIC_SAMPLE_RATE);
+  Serial.printf("[MIC] PDM up: CLK=%d DIN=%d rate=%d\n",
+                PIN_PDM_CLK, PIN_PDM_DIN, MIC_SAMPLE_RATE);
   return true;
 }
 
@@ -137,20 +142,21 @@ void read(Measurement& m) {
   if (!begin()) return;
   m.mic_sample_rate_hz = MIC_SAMPLE_RATE;
 
-  // Settling: discard the first frames so the mic's DC blocker stabilises.
+  // Settling: discard the first frames so the PDM decimation filter and the
+  // mic's internal high-pass stabilise.
   const size_t WARMUP_FRAMES = 256;
   {
-    int32_t* warmup = (int32_t*)malloc(WARMUP_FRAMES * sizeof(int32_t));
+    int16_t* warmup = (int16_t*)malloc(WARMUP_FRAMES * sizeof(int16_t));
     if (warmup) {
       size_t got = 0;
-      i2s_channel_read(rxChan, warmup, WARMUP_FRAMES * sizeof(int32_t), &got, 500);
+      i2s_channel_read(rxChan, warmup, WARMUP_FRAMES * sizeof(int16_t), &got, 500);
       free(warmup);
     }
   }
 
-  int32_t* fftBuf = (int32_t*)malloc(MIC_FFT_SAMPLE_COUNT * sizeof(int32_t));
+  int16_t* fftBuf = (int16_t*)malloc(MIC_FFT_SAMPLE_COUNT * sizeof(int16_t));
   const size_t CHUNK_FRAMES = 512;
-  int32_t* chunk = (int32_t*)malloc(CHUNK_FRAMES * sizeof(int32_t));
+  int16_t* chunk = (int16_t*)malloc(CHUNK_FRAMES * sizeof(int16_t));
   if (!chunk) {
     Serial.println("[MIC] chunk alloc failed");
     free(fftBuf);
@@ -166,18 +172,18 @@ void read(Measurement& m) {
   while (framesRemaining > 0) {
     size_t frames = framesRemaining > CHUNK_FRAMES ? CHUNK_FRAMES : framesRemaining;
     size_t bytesRead = 0;
-    if (i2s_channel_read(rxChan, chunk, frames * sizeof(int32_t), &bytesRead, 1000) != ESP_OK || bytesRead == 0)
+    if (i2s_channel_read(rxChan, chunk, frames * sizeof(int16_t), &bytesRead, 1000) != ESP_OK || bytesRead == 0)
       break;
-    size_t framesRead = bytesRead / sizeof(int32_t);
+    size_t framesRead = bytesRead / sizeof(int16_t);
     for (size_t i = 0; i < framesRead; i++) {
-      int32_t s = chunk[i] >> 8; // 24-bit signed
+      int32_t s = chunk[i]; // 16-bit signed PCM straight from the PDM decimator
       double f = (double)s;
       sum += f;
       sumSq += f * f;
       if (s > mx) mx = s;
       if (s < mn) mn = s;
       count++;
-      if (fftBuf && fftCount < MIC_FFT_SAMPLE_COUNT) fftBuf[fftCount++] = s;
+      if (fftBuf && fftCount < MIC_FFT_SAMPLE_COUNT) fftBuf[fftCount++] = (int16_t)s;
     }
     framesRemaining -= framesRead;
     if (framesRead == 0) break;

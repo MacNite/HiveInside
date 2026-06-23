@@ -1,6 +1,7 @@
-// mic.h — single INMP441 I2S microphone capture + per-band acoustic FFT.
-// Ported from HiveScale firmware/src/mics.cpp, reduced from stereo to mono
-// (one INMP441 with L/R tied to GND -> left slot).
+// mic.h — single MP34DT01 / MP34DT06 PDM microphone capture + per-band acoustic
+// FFT. Mono: one PDM mic with SEL/LR tied to GND -> left slot. The ESP32-C6 I2S
+// peripheral's hardware PDM receiver decimates the 1-bit stream to 16-bit PCM
+// (see mic.cpp); the band/FFT analysis matches HiveScale's INMP441 path.
 #pragma once
 
 #include "config.h"

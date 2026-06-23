@@ -16,9 +16,9 @@ Only the pad/pin numbers differ.
 |---|---|---|
 | I²C SDA | SHT40, accelerometer, LPS22HB | 4.7 kΩ pull-up to 3.3 V |
 | I²C SCL | SHT40, accelerometer, LPS22HB | 4.7 kΩ pull-up to 3.3 V |
-| I²S SCK | mic SCK | 100 Ω series (phantom-power guard) |
-| I²S WS | mic WS | 100 Ω series |
-| I²S SD | mic SD | 100 Ω series + 100 kΩ pull-down |
+| PDM CLK | mic CLK | 100 Ω series guard; MCU → mic |
+| PDM DATA | mic DATA | 100 Ω series + 100 kΩ pull-down; mic → MCU |
+| mic SEL (L/R) | GND | selects the LEFT slot |
 | MIC_EN | P-MOSFET gate | LOW = mic powered; 10 kΩ gate pull-up |
 | BUTTON | pushbutton to GND | internal pull-up, active low |
 | VBAT sense | battery voltage | prototype: external divider → A0; final: on-board |
@@ -39,16 +39,19 @@ Only the pad/pin numbers differ.
 |---|---|---|
 | I²C SDA | D4 | P0.04 |
 | I²C SCL | D5 | P0.05 |
-| I²S SCK | D6 | P1.11 |
-| I²S WS | D7 | P1.12 |
-| I²S SD | D8 | P1.13 |
+| PDM CLK | D6 | P1.11 |
+| PDM DATA | D7 | P1.12 |
+| mic SEL (L/R) → GND | — | LEFT slot |
 | MIC_EN | D9 | P1.14 |
 | BUTTON | D3 | P0.29 |
 | VBAT sense | on-board | P0.31 (AIN7), enabled by P0.14 |
 
-> The XIAO nRF52840 reads its own cell voltage on-board (P0.31, gated by P0.14),
-> so the carrier needs no battery divider. Flashing is over USB-C (UF2
-> bootloader) — no SWD header to populate.
+> The XIAO nRF52840 has a **dedicated hardware PDM peripheral** (it was designed
+> for PDM mics), so the final board needs only the two CLK/DATA lines — one fewer
+> signal than the old I²S mic, leaving D8/P1.13 free. The nRF52840 also reads its
+> own cell voltage on-board (P0.31, gated by P0.14), so the carrier needs no
+> battery divider. Flashing is over USB-C (UF2 bootloader) — no SWD header to
+> populate.
 
 ---
 
@@ -75,9 +78,9 @@ regulator; you just add the sensor breakouts.)
               MIC_EN GPIO  (LOW = on)
 ```
 
-Firmware sequence: set I²S pins to INPUT, then drive the gate HIGH to power down —
-prevents back-feeding the mic through its ESD diodes. The series 100 Ω resistors
-on SCK/WS/SD are the second line of defence.
+Firmware sequence: set the PDM CLK/DATA pins to INPUT, then drive the gate HIGH to
+power down — prevents back-feeding the mic through its ESD diodes. The series
+100 Ω resistors on CLK/DATA are the second line of defence.
 
 ---
 
@@ -90,8 +93,8 @@ on SCK/WS/SD are the second line of defence.
 | 2×AAA | ~1000 mAh | user-replaceable standard cells |
 
 Both XIAO boards charge a LiPo over USB-C. CR2032 works for short-lived
-prototypes but its 0.2 mA continuous-drain rating makes BLE/I²S peaks hard on
-it — prefer CR2477 or LiPo for deployment.
+prototypes but its 0.2 mA continuous-drain rating makes BLE/mic-capture peaks
+hard on it — prefer CR2477 or LiPo for deployment.
 
 > Set the XIAO nRF52840 charge current with P0.13 (HIGH = 50 mA, LOW = 100 mA) to
 > match your cell's recommended charge rate.

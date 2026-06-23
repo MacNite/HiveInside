@@ -6,10 +6,10 @@
 //   * Seeed XIAO ESP32-C6  — MCU + BLE 5 (Bluetooth LE) radio, USB-C, LiPo charger
 //   * LIS3DH               — 3-axis accelerometer (I2C)        -> swarm vibration
 //   * SHT40                — temperature + humidity (I2C)
-//   * INMP441              — I2S MEMS microphone               -> acoustic FFT
+//   * MP34DT01 / MP34DT06  — PDM MEMS microphone               -> acoustic FFT
 //
-// Default pins use the XIAO's labelled header pads (D4/D5 = I2C, D6-D8 = I2S,
-// A0 = battery sense). All values can be overridden from platformio.ini
+// Default pins use the XIAO's labelled header pads (D4/D5 = I2C, D2/D3 = PDM
+// mic, A0 = battery sense). All values can be overridden from platformio.ini
 // build_flags so you can wire the breakouts to whatever pins are convenient.
 #pragma once
 
@@ -180,15 +180,17 @@
 #define I2C_CLOCK_HZ 100000
 #endif
 
-// INMP441 I2S (SD has a 100k pull-down on most breakouts; L/R tied to GND = left)
-#ifndef PIN_I2S_BCLK
-#define PIN_I2S_BCLK 16  // D6
+// MP34DT01 / MP34DT06 PDM microphone. The ESP32-C6 I2S peripheral drives the
+// PDM clock OUT on PIN_PDM_CLK and clocks the mic's 1-bit stream IN on
+// PIN_PDM_DIN; its hardware CIC filter decimates that to 16-bit PCM at
+// MIC_SAMPLE_RATE. SEL/LR tied to GND selects the LEFT slot (see mic.cpp). The
+// PDM clock is MIC_SAMPLE_RATE × 64 (1.024 MHz @ 16 kHz — inside the MP34DT01's
+// 1–3.25 MHz range). D2 (GPIO2) and D3 (GPIO21) are free header pads.
+#ifndef PIN_PDM_CLK
+#define PIN_PDM_CLK 2    // D2 (GPIO2) — clock OUT to the mic
 #endif
-#ifndef PIN_I2S_WS
-#define PIN_I2S_WS 17    // D7
-#endif
-#ifndef PIN_I2S_SD
-#define PIN_I2S_SD 19    // D8
+#ifndef PIN_PDM_DIN
+#define PIN_PDM_DIN 21   // D3 (GPIO21) — PDM data IN from the mic
 #endif
 
 // On-board BOOT button (active-low). Short press = publish now / connectable.
@@ -276,7 +278,7 @@
 #define ACC_BAND_ACTIVITY_HI 200
 
 // ---------------------------------------------------------------------------
-// INMP441 microphone + acoustic FFT
+// MP34DT01 / MP34DT06 PDM microphone + acoustic FFT
 // ---------------------------------------------------------------------------
 #ifndef ENABLE_MIC
 #define ENABLE_MIC 1
@@ -293,8 +295,9 @@
 #ifndef MIC_FFT_SAMPLE_COUNT
 #define MIC_FFT_SAMPLE_COUNT 2048
 #endif
-#ifndef MIC_I2S_PORT
-#define MIC_I2S_PORT I2S_NUM_0
+// The PDM receiver runs on the C6's single I2S peripheral.
+#ifndef MIC_PDM_PORT
+#define MIC_PDM_PORT I2S_NUM_0
 #endif
 
 // Acoustic FFT bands (Hz) — kept aligned with HiveScale insights.
