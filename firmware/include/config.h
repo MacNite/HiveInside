@@ -308,6 +308,16 @@
 #ifndef MIC_PDM_RAW_SAMPLE_RATE
 #define MIC_PDM_RAW_SAMPLE_RATE (MIC_SAMPLE_RATE * MIC_PDM_DECIMATION)
 #endif
+// MCLK-to-sample-rate multiple for the PDM RX clock. For RAW PDM the IDF derives
+// the 2.048 MHz line clock from sample_rate_hz via bclk_div, not from MCLK =
+// sample_rate * mclk_multiple (that product would exceed any achievable MCLK at a
+// MHz-range raw rate), so the IDF default of x256 is fine and is kept here. This
+// is exposed only as a tuning knob: if i2s_channel_init_pdm_rx_mode() ever logs a
+// clock error on your core/board, lower it first (e.g. -DMIC_PDM_MCLK_MULTIPLE=
+// I2S_MCLK_MULTIPLE_128).
+#ifndef MIC_PDM_MCLK_MULTIPLE
+#define MIC_PDM_MCLK_MULTIPLE I2S_MCLK_MULTIPLE_256
+#endif
 // Leave at 1 unless calibration shows the decimator output needs gain. Q8:
 // 256 = 1.0x, 512 = 2.0x.
 #ifndef MIC_PDM_GAIN_Q8

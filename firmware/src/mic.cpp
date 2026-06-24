@@ -189,6 +189,10 @@ bool begin() {
     },
   };
   pdmCfg.slot_cfg.slot_mask = MIC_PDM_SLOT_MASK;
+  // Override the default-config MCLK multiple. Harmless at the IDF default of
+  // x256 (the raw PDM line clock comes from sample_rate_hz / bclk_div), but if a
+  // core/board reports a clock error here, MIC_PDM_MCLK_MULTIPLE is the first knob.
+  pdmCfg.clk_cfg.mclk_multiple = MIC_PDM_MCLK_MULTIPLE;
 
   err = i2s_channel_init_pdm_rx_mode(rxChan, &pdmCfg);
   if (err != ESP_OK) {
