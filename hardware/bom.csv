@@ -1,6 +1,6 @@
 Ref,Component,Function,JLCPCB_Part,Qty,Unit_Price_USD
 U1,Seeed XIAO nRF52840 (SMD module),nRF52840 MCU + BLE + antenna + USB + LiPo charger,module (not JLCPCB),1,9.90
-U2,ICS-43434,I2S MEMS microphone,C2836540,1,1.80
+U2,MP34DT06JTR,PDM MEMS microphone,C503097,1,1.50
 U3,LIS2DH12TR,3-axis accelerometer (I2C),C110926,1,0.47
 U4,SHT40-AD1B-R3,Temperature + humidity (I2C),C2848306,1,1.20
 U5,LPS22HBTR,Barometric pressure (I2C),C94049,1,1.50
@@ -17,8 +17,7 @@ C7,10uF 0402,LIS2DH12 extra decoupling,C19702,1,0.02
 C8,4.7uF 0402,LPS22HB extra decoupling,C19666,1,0.02
 R1,4.7k 0402,I2C SDA pull-up,C25900,1,0.01
 R2,4.7k 0402,I2C SCL pull-up,C25900,1,0.01
-R3,100k 0402,ICS-43434 SD pull-down,C25803,1,0.01
+R3,100k 0402,PDM DATA line pull-down,C25803,1,0.01
 R4,10k 0402,MOSFET gate pull-up,C25744,1,0.01
-R5,100R 0402,I2S SCK series guard,C25076,1,0.01
-R6,100R 0402,I2S WS series guard,C25076,1,0.01
-R7,100R 0402,I2S SD series guard,C25076,1,0.01
+R5,100R 0402,PDM CLK series guard,C25076,1,0.01
+R6,100R 0402,PDM DATA series guard,C25076,1,0.01
