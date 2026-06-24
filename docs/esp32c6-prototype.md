@@ -1,9 +1,10 @@
 # HiveInside — XIAO ESP32-C6 prototype
 
 A breadboard-friendly bring-up of the HiveInside sensor suite on cheap modules,
-**before** the XIAO nRF52840 final board. It ports the proven LIS3DH and INMP441
-FFT code from [HiveScale](https://github.com/MacNite/HiveScale) and exposes the
-readings over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firmware).
+**before** the XIAO nRF52840 final board. It captures LIS3DH/LIS2DH12 vibration,
+MP34DT01-compatible PDM microphone audio and SHT40 climate readings, then exposes
+the processed measurement over a **connectable BLE GATT server**. Firmware:
+[`firmware/`](../firmware).
 
 ## Parts
 
@@ -12,7 +13,7 @@ readings over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firm
 | [Seeed XIAO ESP32-C6](https://s.click.aliexpress.com/e/_c43qaNVb) | MCU + BLE 5 radio, USB-C, LiPo charger | — |
 | LIS3DH breakout (GY-LIS3DH) | 3-axis vibration → swarm prediction | I²C |
 | SHT40 | temperature + humidity | I²C |
-| INMP441 | acoustic FFT (MEMS mic) | I²S |
+| MP34DT01 / compatible one-bit PDM MEMS mic | acoustic FFT (colony hum, piping, stress) | PDM CLK + DATA |
 
 ## What it returns
 
@@ -20,11 +21,13 @@ Vibration and acoustics are analysed exactly like HiveScale, so the band
 definitions match across the ecosystem:
 
 - **Acoustic FFT bands (dBFS)** + broadband RMS/peak: sub-bass 50–150, hum
-  150–300, piping 300–550, stress 550–1500, high 1500–3000 Hz.
+  150–300, piping 300–550, stress 550–1500, high 1500–3000 Hz. The ESP32-C6
+  firmware captures raw PDM through I²S PDM RX, decimates it to PCM in firmware,
+  then feeds the existing FFT path.
 - **Vibration FFT bands (mg)** + broadband RMS/peak: swarm 8–30, fanning 30–100,
   activity 100–200 Hz. The 8–30 Hz band is the ~20 Hz pre-swarm signal
   (Ramsey et al. 2020) the microphone cannot hear.
-- **Temperature / humidity** (SHT40).
+- **Temperature / humidity** (SHT40, low precision, no heater).
 - **Battery** voltage + rough percentage (optional; see below).
 
 ## Wiring (XIAO ESP32-C6 — override in `platformio.ini`)
@@ -33,21 +36,63 @@ definitions match across the ecosystem:
 |---|---|---|---|
 | I²C SDA | D4 | 22 | SHT40 + LIS3DH SDA |
 | I²C SCL | D5 | 23 | SHT40 + LIS3DH SCL |
-| I²S BCLK (SCK) | D6 | 16 | INMP441 SCK |
-| I²S WS (LRCL) | D7 | 17 | INMP441 WS |
-| I²S SD | D8 | 19 | INMP441 SD |
+| PDM CLK | D6 | 16 | MP34DT01 CLK / CK |
+| PDM DATA | D8 | 19 | MP34DT01 DOUT / DATA |
 | Battery sense | A0 | 0 | external divider midpoint |
 | Button | — | 9 | on-board BOOT button (reused) |
 | LED | — | 15 | on-board LED (heartbeat) |
 
 > GPIO3 / GPIO14 drive the XIAO's internal RF switch and are **not** on the
-> header — don't use them. The default I²C pads (D4/D5) and I²S pads (D6–D8)
-> above avoid them.
+> header — don't use them. The default I²C pads (D4/D5) and PDM pads (D6/D8)
+> above avoid them. D7/GPIO17 is no longer used by the microphone because PDM has
+> no word-select line.
 
 LIS3DH straps: `SDO/SA0 → GND` = I²C address **0x18** (firmware default; set
 `-DLIS3DH_ADDR=0x19` for VCC). Leave `CS` high so the breakout stays in I²C
-mode. INMP441 `L/R → GND` selects the left slot, which this mono build reads.
-Add **4.7 kΩ pull-ups** on SDA/SCL to 3V3 if your breakouts lack them.
+mode. For MP34DT01-style breakouts, connect `VDD` to 3V3, `GND` to GND, `CLK` to
+`PIN_PDM_CLK` and `DOUT`/`DATA` to `PIN_PDM_DATA`. If your breakout exposes a
+left/right or select pin, strap it for the default left-slot/phase or override
+`MIC_PDM_SLOT_MASK` in `platformio.ini`. Add **4.7 kΩ pull-ups** on SDA/SCL to
+3V3 if your breakouts lack them.
+
+## PDM microphone capture
+
+The firmware no longer uses the standard-I²S INMP441 path (`BCLK`/`WS`/`SD`). It
+uses the ESP32-C6 I²S PDM RX driver (`driver/i2s_pdm.h`) instead:
+
+| Build flag / config | Default | Meaning |
+|---|---:|---|
+| `PIN_PDM_CLK` | `16` / D6 | PDM clock driven by the ESP32-C6 |
+| `PIN_PDM_DATA` | `19` / D8 | one-bit PDM data input |
+| `MIC_SAMPLE_RATE` | `16000` | decoded PCM rate used by RMS/FFT |
+| `MIC_SAMPLE_FRAMES` | `8000` | broadband RMS/peak capture length |
+| `MIC_FFT_SAMPLE_COUNT` | `2048` | FFT block size |
+| `MIC_PDM_DECIMATION` | `128` | raw PDM bits per decoded PCM sample |
+| `MIC_PDM_RAW_SAMPLE_RATE` | `2048000` | microphone PDM clock with defaults |
+| `MIC_PDM_GAIN_Q8` | `256` | post-decimator gain, Q8 (`256` = 1.0×) |
+| `MIC_PDM_WARMUP_FRAMES` | `256` | decoded frames discarded after enabling CLK |
+| `MIC_PDM_CLK_INVERT` | `0` | invert PDM clock if required by wiring/scope check |
+| `MIC_PDM_INVERT` | `0` | invert one-bit PDM polarity before decimation |
+| `MIC_PDM_MSB_FIRST` | `1` | raw bit order inside each 16-bit DMA word |
+| `MIC_PDM_SLOT_MASK` | `I2S_PDM_SLOT_LEFT` | PDM phase/slot selected by mic strap |
+
+ESP32-C6 I²S can clock and DMA-capture raw PDM, but the C6 target does not expose
+a hardware PDM-to-PCM RX converter in the ESP-IDF target matrix. The firmware
+therefore converts raw PDM with a small third-order CIC/sinc decimator, removes
+DC, computes RMS/peak and then runs the five acoustic FFT bands. With the
+defaults, `2.048 MHz / 128 = 16 kHz` decoded PCM.
+
+## Sensor power / precision behaviour
+
+- `accel::begin()` probes the LIS3DH/LIS2DH12 and leaves it in power-down mode.
+- `accel::read()` wakes the accelerometer by programming `CTRL_REG1`/`CTRL_REG4`,
+  captures the vibration block, computes RMS/peak + bands, then calls
+  `accel::sleep()` so `CTRL_REG1` returns to power-down (`ODR = 0`).
+- `main.cpp` also calls `accel::sleep()` before deep sleep as a safety net.
+- `sht40::begin()` sets `SHT4X_LOW_PRECISION` and `SHT4X_NO_HEATER` to reduce
+  conversion time and energy per wake.
+- `mic::read()` stops and deletes the PDM RX channel after each capture, removing
+  the PDM clock between acoustic measurement windows.
 
 ## BLE: connectable GATT server
 
@@ -144,9 +189,9 @@ Environmental-Sensing (0x181A) and Battery (0x180F) services for generic clients
 
 ## Status & caveats
 
-🚧 **Prototype, not yet hardware-validated.** The sensor/FFT modules are ported
-from field-tested HiveScale code; the BLE layer (NimBLE 2.x on the C6) and XIAO
-pin map are new and need a bench check. Calibrate `VBAT_DIVIDER` against your
-divider, and verify the GATT characteristics in nRF Connect on first flash. If
-NimBLE fails to init on your core version, update the `h2zero/NimBLE-Arduino` pin
-in `platformio.ini`.
+🚧 **Prototype, not yet hardware-validated.** The BLE layer (NimBLE 2.x on the
+C6), PDM microphone path and XIAO pin map need a bench check. Calibrate
+`VBAT_DIVIDER` against your divider, verify the GATT characteristics in nRF
+Connect on first flash, and tune the PDM mic noise floor / absolute dBFS scaling
+with the actual breakout. If NimBLE fails to init on your core version, update
+the `h2zero/NimBLE-Arduino` pin in `platformio.ini`.
