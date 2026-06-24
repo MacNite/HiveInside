@@ -34,8 +34,8 @@ definitions match across the ecosystem:
 |---|---|---|---|
 | I²C SDA | D4 | 22 | SHT40 + LIS3DH SDA |
 | I²C SCL | D5 | 23 | SHT40 + LIS3DH SCL |
-| PDM CLK | D2 | 2 | mic CLK (clock **out** to the mic) |
-| PDM DATA | D3 | 21 | mic DATA/DOUT (data **in** from the mic) |
+| PDM CLK | D6 | 16 | mic CLK (clock **out** to the mic) |
+| PDM DATA | D8 | 19 | mic DATA/DOUT (data **in** from the mic) |
 | mic SEL (L/R) | GND | — | ties the mic to the LEFT slot |
 | mic VDD | 3V3 | — | 1.8–3.3 V; the MP34DT01 module is 3.3 V-tolerant |
 | Battery sense | A0 | 0 | external divider midpoint |
@@ -43,8 +43,9 @@ definitions match across the ecosystem:
 | LED | — | 15 | on-board LED (heartbeat) |
 
 > GPIO3 / GPIO14 drive the XIAO's internal RF switch and are **not** on the
-> header — don't use them. The default I²C pads (D4/D5) and PDM pads (D2/D3)
-> above avoid them.
+> header — don't use them. The default I²C pads (D4/D5) and PDM pads (D6/D8)
+> above avoid them. (D6/D7 are the XIAO's UART pins, but they are free here
+> because `Serial` is routed to the native USB port — see below.)
 
 LIS3DH straps: `SDO/SA0 → GND` = I²C address **0x18** (firmware default; set
 `-DLIS3DH_ADDR=0x19` for VCC). Leave `CS` high so the breakout stays in I²C
@@ -53,12 +54,15 @@ slot, which this mono build reads (tie `SEL → VDD` and switch the firmware to
 `I2S_PDM_SLOT_RIGHT` for the other channel). Add **4.7 kΩ pull-ups** on SDA/SCL
 to 3V3 if your breakouts lack them.
 
-> **PDM clock & levels.** The C6 generates the PDM clock at `MIC_SAMPLE_RATE × 64`
-> = **1.024 MHz** at 16 kHz, inside the MP34DT01's 1–3.25 MHz spec. The decimator
-> returns 16-bit PCM (the old INMP441 path was 24-bit), so the firmware references
-> dBFS to 2¹⁵ instead of 2²³. The MP34DT01/06 sensitivity (−26 dBFS) matches the
-> INMP441's, so absolute band levels stay broadly comparable — but re-check any
-> field thresholds on first deployment.
+> **PDM clock & levels.** The ESP32-C6's I2S peripheral has **no hardware
+> PDM-to-PCM converter** (unlike the original ESP32 / ESP32-S3), so the firmware
+> captures the **raw** PDM bitstream and a small software sinc³ (CIC) decimator
+> converts it to PCM. The PDM clock is `MIC_SAMPLE_RATE × MIC_PDM_DECIMATION`
+> = 16 kHz × 128 = **2.048 MHz**, inside the MP34DT01's 1–3.25 MHz spec; the
+> decimator then downsamples 128:1 to 16-bit PCM at 16 kHz. dBFS is referenced to
+> 2¹⁵ (the old INMP441 path was 24-bit / 2²³). The MP34DT01/06 sensitivity
+> (−26 dBFS) is close to the INMP441's, so absolute band levels stay broadly
+> comparable — but re-check any field thresholds on first deployment.
 
 ## BLE: connectable GATT server
 
