@@ -1,6 +1,6 @@
 # HiveInside
 
-A stand-alone, battery-powered **in-hive environmental and acoustic sensor** for
+A stand-alone, battery-powered **in-hive environmental, vibration and acoustic sensor** for
 beehive monitoring. It exposes its readings over **BLE as a connectable GATT
 server** and pairs with the [HiveScale](https://github.com/MacNite/HiveScale)
 ecosystem, where a HiveScale node connects each cycle and bridges the data to the
@@ -33,12 +33,15 @@ the hive on a tiny wireless board, avoiding the cabling a wired sensor needs.
 | Function | Prototype (breakout) | Final (SMD) | Interface |
 |---|---|---|---|
 | 3-axis vibration (swarm prediction, ~20 Hz) | LIS3DH | LIS2DH12 | I²C |
-| Acoustic FFT (piping, hum, stress) | INMP441 | ICS-43434 | I²S |
+| Acoustic FFT (piping, hum, stress) | MP34DT01 / compatible PDM MEMS mic | PDM MEMS mic | PDM |
 | Temperature + humidity | SHT40 | SHT40 | I²C |
 | Barometric pressure | — | LPS22HB | I²C |
 
 Vibration and acoustics are analysed into the same FFT bands as HiveScale, so a
-value means the same thing across the ecosystem.
+value means the same thing across the ecosystem. On the ESP32-C6 prototype the
+microphone path now uses the chip's I²S PDM RX peripheral to capture raw PDM,
+then decimates it to PCM in firmware before computing broadband dBFS and the
+five acoustic FFT bands.
 
 ---
 
@@ -48,6 +51,9 @@ value means the same thing across the ecosystem.
   plus a custom JSON characteristic carrying the full FFT dataset.
 - **Ultra-low power** — deep sleep with HiveScale-scheduled wake sync, so the
   radio is on only when a central connects. Months on a CR2477 / LiPo.
+- **Per-capture sensor power trimming** — the LIS3DH is woken only for the
+  vibration block and then powered down again; the PDM microphone clock is
+  stopped between acoustic captures; SHT40 runs in low-precision/no-heater mode.
 - **Firmware-over-BLE (OTA)** — HiveScale relays new images over GATT.
 - **Open hardware** — KiCad design + JLCPCB-ready BOM for the final carrier PCB.
 - **PlatformIO + Arduino** — flashes over USB-C; no programmer needed on either XIAO.
@@ -87,9 +93,9 @@ boards, and [`docs/homeassistant.md`](docs/homeassistant.md) for integration.
 ## Status
 
 🚧 **Prototype, not yet hardware-validated.** Sensor/FFT modules are ported from
-the field-tested HiveScale code; the BLE layer and XIAO pin map need a bench
-check. Hardware design for the final board is documented in
-[`docs/wiring.md`](docs/wiring.md).
+the field-tested HiveScale code; the BLE layer, XIAO pin map and new PDM
+microphone path need a bench check. Hardware design for the final board is
+documented in [`docs/wiring.md`](docs/wiring.md).
 
 ## License
 
