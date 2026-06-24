@@ -15,11 +15,10 @@ bool begin() {
   // Adafruit_SHT4x::begin() probes the fixed I2C address on the given bus.
   present = sht.begin(&Wire);
   if (present) {
-    // High precision is fine here: we read once every few minutes, not in a
-    // tight loop, so the extra ~8 ms conversion time is irrelevant.
-    sht.setPrecision(SHT4X_HIGH_PRECISION);
+    // Low precision keeps the SHT40 conversion short and lowers per-cycle energy.
+    sht.setPrecision(SHT4X_LOW_PRECISION);
     sht.setHeater(SHT4X_NO_HEATER);
-    Serial.println("[SHT40] present");
+    Serial.println("[SHT40] present (low precision)");
   } else {
     Serial.println("[SHT40] not found");
   }

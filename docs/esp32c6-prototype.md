@@ -1,9 +1,10 @@
 # HiveInside — XIAO ESP32-C6 prototype
 
 A breadboard-friendly bring-up of the HiveInside sensor suite on cheap modules,
-**before** the XIAO nRF52840 final board. It ports the proven LIS3DH and INMP441
-FFT code from [HiveScale](https://github.com/MacNite/HiveScale) and exposes the
-readings over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firmware).
+**before** the XIAO nRF52840 final board. It ports the proven LIS3DH vibration
+FFT code from [HiveScale](https://github.com/MacNite/HiveScale), captures
+acoustics with a **PDM MEMS microphone** (MP34DT01), and exposes the readings
+over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firmware).
 
 ## Parts
 
@@ -12,7 +13,7 @@ readings over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firm
 | [Seeed XIAO ESP32-C6](https://s.click.aliexpress.com/e/_c43qaNVb) | MCU + BLE 5 radio, USB-C, LiPo charger | — |
 | LIS3DH breakout (GY-LIS3DH) | 3-axis vibration → swarm prediction | I²C |
 | SHT40 | temperature + humidity | I²C |
-| INMP441 | acoustic FFT (MEMS mic) | I²S |
+| MP34DT01 (proto) / MP34DT06 (SMD) | acoustic FFT (MEMS mic) | PDM |
 
 ## What it returns
 
@@ -33,21 +34,31 @@ definitions match across the ecosystem:
 |---|---|---|---|
 | I²C SDA | D4 | 22 | SHT40 + LIS3DH SDA |
 | I²C SCL | D5 | 23 | SHT40 + LIS3DH SCL |
-| I²S BCLK (SCK) | D6 | 16 | INMP441 SCK |
-| I²S WS (LRCL) | D7 | 17 | INMP441 WS |
-| I²S SD | D8 | 19 | INMP441 SD |
+| PDM CLK | D2 | 2 | mic CLK (clock **out** to the mic) |
+| PDM DATA | D3 | 21 | mic DATA/DOUT (data **in** from the mic) |
+| mic SEL (L/R) | GND | — | ties the mic to the LEFT slot |
+| mic VDD | 3V3 | — | 1.8–3.3 V; the MP34DT01 module is 3.3 V-tolerant |
 | Battery sense | A0 | 0 | external divider midpoint |
 | Button | — | 9 | on-board BOOT button (reused) |
 | LED | — | 15 | on-board LED (heartbeat) |
 
 > GPIO3 / GPIO14 drive the XIAO's internal RF switch and are **not** on the
-> header — don't use them. The default I²C pads (D4/D5) and I²S pads (D6–D8)
+> header — don't use them. The default I²C pads (D4/D5) and PDM pads (D2/D3)
 > above avoid them.
 
 LIS3DH straps: `SDO/SA0 → GND` = I²C address **0x18** (firmware default; set
 `-DLIS3DH_ADDR=0x19` for VCC). Leave `CS` high so the breakout stays in I²C
-mode. INMP441 `L/R → GND` selects the left slot, which this mono build reads.
-Add **4.7 kΩ pull-ups** on SDA/SCL to 3V3 if your breakouts lack them.
+mode. The PDM mic's `SEL` (a.k.a. `L/R`) `→ GND` makes it output on the LEFT
+slot, which this mono build reads (tie `SEL → VDD` and switch the firmware to
+`I2S_PDM_SLOT_RIGHT` for the other channel). Add **4.7 kΩ pull-ups** on SDA/SCL
+to 3V3 if your breakouts lack them.
+
+> **PDM clock & levels.** The C6 generates the PDM clock at `MIC_SAMPLE_RATE × 64`
+> = **1.024 MHz** at 16 kHz, inside the MP34DT01's 1–3.25 MHz spec. The decimator
+> returns 16-bit PCM (the old INMP441 path was 24-bit), so the firmware references
+> dBFS to 2¹⁵ instead of 2²³. The MP34DT01/06 sensitivity (−26 dBFS) matches the
+> INMP441's, so absolute band levels stay broadly comparable — but re-check any
+> field thresholds on first deployment.
 
 ## BLE: connectable GATT server
 

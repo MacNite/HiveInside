@@ -103,11 +103,22 @@ static float bandRmsMg(const double* mag, size_t fftSize, uint16_t sampleRate,
   return (float)sqrt(sumSq);
 }
 
+void sleep() {
+  if (!present) return;
+  // LIS3DH/LIS2DH12 power-down: CTRL_REG1 ODR[3:0] = 0000. Axis bits are
+  // cleared too, so the sensor draws its power-down current until read()
+  // reprograms the ODR before the next capture.
+  if (!writeReg(REG_CTRL_REG1, 0x00)) {
+    Serial.println("[ACCEL] sleep failed");
+  }
+}
+
 bool begin() {
   uint8_t who = 0;
   present = readRegs(REG_WHO_AM_I, &who, 1) && who == WHO_AM_I_VALUE;
   Serial.printf("[ACCEL] LIS3DH 0x%02X %s (who=0x%02X)\n", LIS3DH_ADDR,
                 present ? "present" : "NOT found", who);
+  if (present) sleep();
   return present;
 }
 
@@ -120,10 +131,12 @@ void read(Measurement& m) {
   const uint8_t range_g = LIS3DH_RANGE_G;
   const float mgPerDigit = mgPerDigitFor(range_g);
 
-  // CTRL_REG1: ODR | XYZ enabled (normal mode). CTRL_REG4: BDU | FS | HR.
+  // Wake for this capture: CTRL_REG1 = ODR | XYZ enabled (normal mode).
+  // CTRL_REG4: BDU | FS | HR. The sensor is powered down again before return.
   if (!writeReg(REG_CTRL_REG1, (uint8_t)((odrCode << 4) | 0x07)) ||
       !writeReg(REG_CTRL_REG4, (uint8_t)(0x80 | fsBitsFor(range_g) | 0x08))) {
     Serial.println("[ACCEL] config write failed");
+    sleep();
     return;
   }
 
@@ -138,6 +151,7 @@ void read(Measurement& m) {
   if (!magnitude || !vImag) {
     free(magnitude); free(vImag);
     Serial.println("[ACCEL] FFT heap alloc failed");
+    sleep();
     return;
   }
 
@@ -170,6 +184,7 @@ void read(Measurement& m) {
   if (n < 64) {
     free(magnitude); free(vImag);
     Serial.printf("[ACCEL] only %u samples; skipping\n", (unsigned)n);
+    sleep();
     return;
   }
 
@@ -210,6 +225,8 @@ void read(Measurement& m) {
                 m.accel_rms_mg, m.accel_peak_mg, m.accel_bands.swarm_mg,
                 m.accel_bands.fanning_mg, m.accel_bands.activity_mg,
                 (unsigned)m.accel_sample_count, (unsigned)odrHz);
+
+  sleep();
 }
 
 } // namespace accel

@@ -33,7 +33,7 @@ the hive on a tiny wireless board, avoiding the cabling a wired sensor needs.
 | Function | Prototype (breakout) | Final (SMD) | Interface |
 |---|---|---|---|
 | 3-axis vibration (swarm prediction, ~20 Hz) | LIS3DH | LIS2DH12 | I²C |
-| Acoustic FFT (piping, hum, stress) | INMP441 | ICS-43434 | I²S |
+| Acoustic FFT (piping, hum, stress) | MP34DT01 | MP34DT06 | PDM |
 | Temperature + humidity | SHT40 | SHT40 | I²C |
 | Barometric pressure | — | LPS22HB | I²C |
 

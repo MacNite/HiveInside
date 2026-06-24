@@ -6,9 +6,9 @@
 //   * Seeed XIAO ESP32-C6  — MCU + BLE 5 (Bluetooth LE) radio, USB-C, LiPo charger
 //   * LIS3DH               — 3-axis accelerometer (I2C)        -> swarm vibration
 //   * SHT40                — temperature + humidity (I2C)
-//   * INMP441              — I2S MEMS microphone               -> acoustic FFT
+//   * MP34DT01 / PDM MEMS microphone                      -> acoustic FFT
 //
-// Default pins use the XIAO's labelled header pads (D4/D5 = I2C, D6-D8 = I2S,
+// Default pins use the XIAO's labelled header pads (D4/D5 = I2C, D6/D8 = PDM,
 // A0 = battery sense). All values can be overridden from platformio.ini
 // build_flags so you can wire the breakouts to whatever pins are convenient.
 #pragma once
@@ -19,7 +19,7 @@
 // Identity / timing
 // ---------------------------------------------------------------------------
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.3.4"
+#define HIVEINSIDE_FW_VERSION "0.4.0"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@
 // Pin map — Seeed XIAO ESP32-C6 (override any of these in platformio.ini).
 //
 // Defaults use the XIAO's labelled header pads. ADC1 lives on GPIO0..GPIO6, so
-// battery sense uses A0 (GPIO0); I2C and I2S route to any GPIO via the GPIO
+// battery sense uses A0 (GPIO0); I2C and I2S/PDM route to any GPIO via the GPIO
 // matrix. GPIO3/GPIO14 drive the XIAO's internal RF switch and are NOT on the
 // header, so they are avoided. The on-board BOOT button (GPIO9) is reused for
 // "identify"; the user LED is GPIO15.
@@ -180,15 +180,16 @@
 #define I2C_CLOCK_HZ 100000
 #endif
 
-// INMP441 I2S (SD has a 100k pull-down on most breakouts; L/R tied to GND = left)
-#ifndef PIN_I2S_BCLK
-#define PIN_I2S_BCLK 16  // D6
+// MP34DT01-style PDM microphone. The ESP32-C6 I2S PDM peripheral drives
+// PDM CLK and samples DATA; there is no BCLK/WS line as with standard I2S.
+// Tie the microphone L/R or SEL pin to GND for the default left-slot mask, or
+// change MIC_PDM_SLOT_MASK to I2S_PDM_SLOT_RIGHT if your breakout is strapped
+// for the other clock phase.
+#ifndef PIN_PDM_CLK
+#define PIN_PDM_CLK 16   // D6
 #endif
-#ifndef PIN_I2S_WS
-#define PIN_I2S_WS 17    // D7
-#endif
-#ifndef PIN_I2S_SD
-#define PIN_I2S_SD 19    // D8
+#ifndef PIN_PDM_DATA
+#define PIN_PDM_DATA 19  // D8
 #endif
 
 // On-board BOOT button (active-low). Short press = publish now / connectable.
@@ -276,18 +277,19 @@
 #define ACC_BAND_ACTIVITY_HI 200
 
 // ---------------------------------------------------------------------------
-// INMP441 microphone + acoustic FFT
+// PDM microphone + acoustic FFT (MP34DT01 / similar)
 // ---------------------------------------------------------------------------
 #ifndef ENABLE_MIC
 #define ENABLE_MIC 1
 #endif
 
+// Decoded PCM sample rate after software PDM decimation.
 #ifndef MIC_SAMPLE_RATE
-#define MIC_SAMPLE_RATE 16000
+#define MIC_SAMPLE_RATE 16000UL
 #endif
-// Frames captured for RMS/peak each cycle (0.5 s at 16 kHz).
+// PCM frames captured for RMS/peak each cycle (0.5 s at 16 kHz).
 #ifndef MIC_SAMPLE_FRAMES
-#define MIC_SAMPLE_FRAMES 8000
+#define MIC_SAMPLE_FRAMES 8000UL
 #endif
 // Samples fed into the acoustic FFT (power of two). 2048 @ 16 kHz ≈ 7.8 Hz/bin.
 #ifndef MIC_FFT_SAMPLE_COUNT
@@ -295,6 +297,40 @@
 #endif
 #ifndef MIC_I2S_PORT
 #define MIC_I2S_PORT I2S_NUM_0
+#endif
+
+// ESP32-C6 has raw PDM RX but no hardware PDM-to-PCM RX converter, so mic.cpp
+// captures raw PDM at this clock and runs a small software sinc^3 decimator.
+// 2.048 MHz / 128 = 16 kHz PCM, a safe clock for MP34DT01-style microphones.
+#ifndef MIC_PDM_DECIMATION
+#define MIC_PDM_DECIMATION 128UL
+#endif
+#ifndef MIC_PDM_RAW_SAMPLE_RATE
+#define MIC_PDM_RAW_SAMPLE_RATE (MIC_SAMPLE_RATE * MIC_PDM_DECIMATION)
+#endif
+// Leave at 1 unless calibration shows the decimator output needs gain. Q8:
+// 256 = 1.0x, 512 = 2.0x.
+#ifndef MIC_PDM_GAIN_Q8
+#define MIC_PDM_GAIN_Q8 256
+#endif
+// Discard this many decoded PCM frames after enabling the PDM clock so the CIC
+// filter and microphone output settle before statistics/FFT are accumulated.
+#ifndef MIC_PDM_WARMUP_FRAMES
+#define MIC_PDM_WARMUP_FRAMES 256UL
+#endif
+#ifndef MIC_PDM_CLK_INVERT
+#define MIC_PDM_CLK_INVERT 0
+#endif
+#ifndef MIC_PDM_INVERT
+#define MIC_PDM_INVERT 0
+#endif
+// Raw PDM bit order inside each 16-bit word. If a logic-analyzer capture shows
+// the ESP-IDF buffer order reversed for your board/core, set this to 0.
+#ifndef MIC_PDM_MSB_FIRST
+#define MIC_PDM_MSB_FIRST 1
+#endif
+#ifndef MIC_PDM_SLOT_MASK
+#define MIC_PDM_SLOT_MASK I2S_PDM_SLOT_LEFT
 #endif
 
 // Acoustic FFT bands (Hz) — kept aligned with HiveScale insights.
