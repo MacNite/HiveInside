@@ -1,8 +1,8 @@
 // main.cpp — HiveInside ESP32-C6 prototype top level.
 //
 // Cycle: read SHT40 (temp/humidity) -> capture LIS3DH vibration FFT -> capture
-// MP34DT01 PDM acoustic FFT -> read battery -> publish over BLE (connectable
-// GATT server — see ble_link.cpp).
+// PDM microphone acoustic FFT -> read battery -> publish over BLE (connectable GATT
+// server — see ble_link.cpp).
 //
 // Deep sleep (DEEP_SLEEP_ENABLED=1, default OFF):
 //   After each cycle the device stays connectable for CONNECT_WINDOW_MS then
@@ -99,6 +99,9 @@ static void enterDeepSleep(uint64_t sleepMs) {
                 (unsigned long)(sleepMs / 1000ULL), (unsigned long)millis());
   Serial.flush();
   ble::shutdown();
+#if ENABLE_ACCEL
+  accel::sleep();
+#endif
   Wire.end();
 #if PIN_WAKE_BUTTON >= 0
   // Button wake: only LP IO pins (GPIO0–7) work on ESP32-C6.

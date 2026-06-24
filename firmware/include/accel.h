@@ -22,8 +22,11 @@ constexpr uint8_t WHO_AM_I_VALUE = 0x33;
 bool begin();
 
 // Capture LIS3DH_SAMPLE_COUNT samples and fill m.accel_* (RMS, peak, bands).
-// Safe to call every cycle: control registers are re-written each time.
+// Wakes the sensor, captures the block, then powers it down again.
 void read(Measurement& m);
+
+// Put the LIS3DH/LIS2DH12 in power-down mode (CTRL_REG1 ODR = 0).
+void sleep();
 
 } // namespace accel
 
