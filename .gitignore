@@ -8,6 +8,7 @@
 *.hex
 *.bin
 *.elf
+*/build
 
 # Editor
 .vscode/
