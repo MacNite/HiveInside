@@ -1,15 +1,15 @@
-# HiveInside — XIAO nRF54L15 Sense firmware (nRF Connect SDK / Zephyr)
+# HiveInside — XIAO nRF54LM20A Sense firmware (nRF Connect SDK / Zephyr)
 
 The next-generation HiveInside node, moving from the XIAO ESP32-C6 prototype
-(`firmware-esp32-c6/`) to the **Seeed XIAO nRF54L15 Sense** for much lower
+(`firmware-esp32-c6/`) to the **Seeed XIAO nRF54LM20A Sense** for much lower
 power and a single integrated board (on-board IMU + PDM mic).
 
-- **MCU:** nRF54L15 — Cortex-M33 @ 128 MHz, FPU + DSP, 1.5 MB RRAM, 256 KB RAM,
+- **MCU:** nRF54LM20A — Cortex-M33 @ 128 MHz, FPU + DSP, 2 MB RRAM, 512 KB RAM,
   Bluetooth LE 6.0. Plus a RISC-V (FLPR) coprocessor we can ignore for now.
 - **On-board IMU:** ST **LSM6DS3TR-C** (6-axis) — used for the swarm-band
   vibration FFT (the ~8–30 Hz pre-swarm signal from Ramsey et al. 2020).
 - **On-board mic:** **MSM261DGT006** PDM MEMS microphone — acoustic FFT.
-  The nRF54L15 has a **hardware PDM peripheral** that decodes PDM → PCM in
+  The nRF54LM20A has a **hardware PDM peripheral** that decodes PDM → PCM in
   hardware, so we drop the software sinc decimator the ESP32-C6 needed.
 - **Later:** external **SHT40** (temp/humidity) over I²C.
 
@@ -41,10 +41,10 @@ You said the Nordic VS Code plugins are already installed. Finish the setup:
 2. **Install Toolchain** — pick the version that matches the SDK below (the
    extension pairs them). This is the compiler + `west` + native tools.
 3. **Install SDK** — install a recent **nRF Connect SDK** release that has
-   nRF54L15 production support and that the Seeed board files target (the
+   nRF54LM20A production support and that the Seeed board files target (the
    current Seeed `platform-seeedboards` samples track the recent NCS line; pick
    the newest offered unless their wiki pins an exact version).
-4. **Add the Seeed board files** (the XIAO nRF54L15 board isn't in your SDK tree
+4. **Add the Seeed board files** (the XIAO nRF54LM20A board isn't in your SDK tree
    until you point Zephyr at Seeed's definitions):
    ```bash
    git clone https://github.com/Seeed-Studio/platform-seeedboards.git
@@ -60,11 +60,11 @@ You said the Nordic VS Code plugins are already installed. Finish the setup:
 Confirms the toolchain, board target and flashing path before any sensors.
 
 **Build (VS Code):** nRF Connect sidebar → **Add build configuration** → select
-board target **`xiao_nrf54l15/nrf54l15/cpuapp`** → **Build Configuration**.
+board target **`xiao_nrf54lm20a/nrf54lm20a/cpuapp`** → **Build Configuration**.
 
 **Build (CLI):**
 ```bash
-west build -b xiao_nrf54l15/nrf54l15/cpuapp firmware-nrf54l15
+west build -b xiao_nrf54lm20a/nrf54lm20a/cpuapp firmware-nrf54lm20a
 ```
 
 **Flash:** the XIAO has no on-board debugger, so either:
@@ -77,7 +77,7 @@ west build -b xiao_nrf54l15/nrf54l15/cpuapp firmware-nrf54l15
 > relying on it — some XIAO revisions ship with the UF2 bootloader, some expect
 > an external debugger.
 
-✅ **Success = the on-board user LED blinks at 1 Hz** and `HiveInside nRF54L15
+✅ **Success = the on-board user LED blinks at 1 Hz** and `HiveInside nRF54LM20A
 blinky up …` prints on the serial console (115200 baud over the USB CDC-ACM).
 
 ---
@@ -106,7 +106,7 @@ Planned build order — each step is independently testable on the bench:
    tune the interval. Measure with a Power Profiler Kit if available.
 7. **SHT40** over I²C (external, added last as you noted).
 8. **Battery voltage** via SAADC — *needs schematic confirmation* of whether the
-   XIAO nRF54L15 Sense exposes a BAT+ divider net and an enable GPIO.
+   XIAO nRF54LM20A Sense exposes a BAT+ divider net and an enable GPIO.
 
 ### ⚠️ Important design note: you can't beacon a *full* FFT
 
