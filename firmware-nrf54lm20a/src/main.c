@@ -1,11 +1,11 @@
 /*
- * HiveInside — XIAO nRF54L15 Sense bring-up: Step 1, blinky.
+ * HiveInside — XIAO nRF54LM20A Sense bring-up: Step 1, blinky.
  *
  * Goal of this step: prove the toolchain, the board target and the flashing
  * path all work end-to-end before any sensors or BLE are involved. If the
  * on-board user LED blinks, your nRF Connect SDK setup is good.
  *
- * Board target: xiao_nrf54l15/nrf54l15/cpuapp
+ * Board target: xiao_nrf54lm20a/nrf54lm20a/cpuapp
  *
  * We drive the LED through the `led0` devicetree alias that the Seeed board
  * files provide. The LED's active-low wiring (XIAO user LEDs are active-low)
@@ -33,7 +33,7 @@ int main(void)
 		return 0;
 	}
 
-	printk("HiveInside nRF54L15 blinky up — toggling led0 every %d ms\n",
+	printk("HiveInside nRF54LM20A blinky up — toggling led0 every %d ms\n",
 	       BLINK_PERIOD_MS);
 
 	while (1) {
