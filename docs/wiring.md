@@ -1,12 +1,16 @@
 # HiveInside wiring reference
 
 Two targets share the same logical wiring: the **XIAO ESP32-C6** prototype and
-the **XIAO nRF52840** final board (the module reflow-mounted on a carrier PCB).
-Only the pad/pin numbers differ.
+the **XIAO nRF54LM20A Sense** final board (the module reflow-mounted on a carrier
+PCB). The big difference on the final board is that the **IMU and PDM mic are
+on-board** — only the I²C climate sensors, the button and the battery are
+external.
 
 - Prototype pin map: [`esp32c6-prototype.md`](esp32c6-prototype.md) and
   `firmware/include/config.h`.
-- Final board ([buy](https://s.click.aliexpress.com/e/_c2yM9y1r)): this document.
+- Final board ([buy](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html),
+  or the [XIAO nRF54L15 Sense](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)):
+  this document.
 
 ---
 
@@ -27,60 +31,63 @@ Only the pad/pin numbers differ.
 
 | Device | Address | Strap |
 |---|---|---|
-| accelerometer (LIS3DH proto / LIS2DH12 final) | 0x18 | SA0 → GND, CS → VDD (I²C mode) |
-| SHT40 | 0x44 | fixed |
-| LPS22HB (final only) | 0x5C | SA0 → GND, CS → VDD (I²C mode) |
+| accelerometer — prototype LIS3DH (final: on-board LSM6DS3TR-C, wired by the board) | 0x18 (LIS3DH) | SA0 → GND, CS → VDD (I²C mode) |
+| SHT40 (external, both boards) | 0x44 | fixed |
+| LPS22HB (external, final only, optional) | 0x5C | SA0 → GND, CS → VDD (I²C mode) |
 
 ---
 
-## Final board — XIAO nRF52840 pads
+## Final board — XIAO nRF54LM20A Sense
 
-| Signal | XIAO pad | nRF52840 pin |
+On the nRF54LM20A Sense the **6-axis IMU (LSM6DS3TR-C) and PDM mic
+(MSM261DGT006) are on the module**, wired to the SoC by Seeed's board files — so
+the carrier does *not* route a mic or accelerometer. Firmware reaches them
+through the board's devicetree nodes, not through carrier traces. The carrier
+only has to break out the external I²C climate sensors and the button:
+
+| Signal | XIAO pad | Goes to |
 |---|---|---|
-| I²C SDA | D4 | P0.04 |
-| I²C SCL | D5 | P0.05 |
-| PDM CLK | D6 | P1.11 |
-| PDM DATA | D7 | P1.12 |
-| mic SEL (L/R) → GND | — | LEFT slot |
-| MIC_EN | D9 | P1.14 |
-| BUTTON | D3 | P0.29 |
-| VBAT sense | on-board | P0.31 (AIN7), enabled by P0.14 |
+| I²C SDA | D4 | SHT40 (+ optional LPS22HB) |
+| I²C SCL | D5 | SHT40 (+ optional LPS22HB) |
+| BUTTON | a free D-pin | pushbutton to GND, internal pull-up |
+| VBAT / charge | on-board | handled by the on-board **nPM1300** PMIC |
 
-> The XIAO nRF52840 has a **dedicated hardware PDM peripheral** (it was designed
-> for PDM mics), so the final board needs only the two CLK/DATA lines — one fewer
-> signal than the old I²S mic, leaving D8/P1.13 free. The nRF52840 also reads its
-> own cell voltage on-board (P0.31, gated by P0.14), so the carrier needs no
-> battery divider. Flashing is over USB-C (UF2 bootloader) — no SWD header to
-> populate.
+> **Confirm the exact XIAO pad → SoC pin mapping against the Seeed board
+> devicetree** (`xiao_nrf54lm20a`) before layout — the nRF54L pin naming differs
+> from the old nRF52840 `P0.xx`/`P1.xx` map, and the Sense board reserves several
+> pads for its on-board IMU/mic. The nRF54LM20A does have a **hardware PDM
+> peripheral** (PDM→PCM in hardware, so no software decimator is needed), but on
+> this board the mic is already routed on-module. Flashing is over USB-C via the
+> board's on-board **CMSIS-DAP** debugger (`west flash`); some board revisions
+> also expose a UF2 drag-and-drop path — check the Seeed wiki.
 
 ---
 
 ## Power & decoupling
 
-The XIAO module integrates the nRF52840's DC/DC converter, 3.3 V regulator,
-32 kHz crystal, USB and LiPo charger, so the carrier only powers the sensors:
+The XIAO nRF54LM20A Sense integrates the SoC's DC/DC converter, 3.3 V regulator,
+32 kHz crystal, USB-C and the **nPM1300** PMIC (LiPo charging + fuel gauge), so
+the carrier only powers the external sensors:
 
 - 100 µF bulk electrolytic on the 3.3 V rail to absorb BLE TX bursts.
-- 100 nF per IC at its VDD pin; plus 10 µF at the accelerometer and 4.7 µF at
-  LPS22HB.
+- 100 nF per external IC at its VDD pin; plus 4.7 µF at the LPS22HB. (The on-board
+  IMU and mic are decoupled on the Sense module.)
 
 (On the prototype the XIAO ESP32-C6 likewise provides USB, charging and the
 regulator; you just add the sensor breakouts.)
 
-## Microphone power gating
+## Microphone
 
-```
-3.3V ──Source─┤ P-MOSFET ├─Drain── mic VDD
-                  Gate
-                   │
-   10kΩ ──── 3.3V  │  (default off)
-                   │
-              MIC_EN GPIO  (LOW = on)
-```
+The MSM261DGT006 PDM mic is **on the XIAO nRF54LM20A Sense module**, powered and
+routed by the board — there is no external mic, series guard or power-gating
+MOSFET to place on the carrier. Firmware saves power by only clocking the PDM
+peripheral for the short capture window each cycle (see
+[`firmware-nrf54lm20a/`](../firmware-nrf54lm20a)); it does not switch a discrete
+mic supply.
 
-Firmware sequence: set the PDM CLK/DATA pins to INPUT, then drive the gate HIGH to
-power down — prevents back-feeding the mic through its ESD diodes. The series
-100 Ω resistors on CLK/DATA are the second line of defence.
+> On the ESP32-C6 prototype, where the mic is an external MP34DT01 breakout, a
+> P-MOSFET on `MIC_EN` gates its supply and 100 Ω series resistors guard CLK/DATA
+> — see [`esp32c6-prototype.md`](esp32c6-prototype.md).
 
 ---
 
@@ -96,8 +103,11 @@ Both XIAO boards charge a LiPo over USB-C. CR2032 works for short-lived
 prototypes but its 0.2 mA continuous-drain rating makes BLE/mic-capture peaks
 hard on it — prefer CR2477 or LiPo for deployment.
 
-> Set the XIAO nRF52840 charge current with P0.13 (HIGH = 50 mA, LOW = 100 mA) to
-> match your cell's recommended charge rate.
+> On the XIAO nRF54LM20A Sense the **nPM1300 PMIC** handles LiPo charging and
+> gives a fuel gauge (battery voltage / current), so the carrier needs no battery
+> divider and the charge current is configured through the PMIC (over I²C / its
+> Zephyr driver) rather than a fixed strap pin. Confirm the exposed charge-config
+> net against the Seeed schematic.
 
 ---
 

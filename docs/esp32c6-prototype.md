@@ -1,7 +1,7 @@
 # HiveInside — XIAO ESP32-C6 prototype
 
 A breadboard-friendly bring-up of the HiveInside sensor suite on cheap modules,
-**before** the XIAO nRF52840 final board. It ports the proven LIS3DH vibration
+**before** the XIAO nRF54LM20A Sense final board. It ports the proven LIS3DH vibration
 FFT code from [HiveScale](https://github.com/MacNite/HiveScale), captures
 acoustics with a **PDM MEMS microphone** (MP34DT01), and exposes the readings
 over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firmware).
@@ -124,8 +124,8 @@ BAT+ to **A0** (`PIN_VBAT_ADC`, GPIO0); the firmware reads it with
 `analogReadMilliVolts()`. Set `VBAT_DIVIDER` to your ratio (2.0 for equal
 resistors). To skip battery telemetry, build with `-DENABLE_BATTERY=0`.
 
-> The final XIAO nRF52840 board reads the cell on-board (no external divider), so
-> this divider is a prototype-only workaround.
+> The final XIAO nRF54LM20A Sense reads the cell through its on-board nPM1300 PMIC
+> (fuel gauge, no external divider), so this divider is a prototype-only workaround.
 
 ## Measurement JSON (characteristic `8e8b0002-…`)
 

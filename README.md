@@ -9,9 +9,13 @@ backend.
 - **Now (prototype):** Seeed **XIAO ESP32-C6** + breakout sensors — the firmware
   in [`firmware/`](firmware) targets this board.
   [[buy]](https://s.click.aliexpress.com/e/_c43qaNVb)
-- **Final:** Seeed **XIAO nRF52840** (or its SMD/castellated module) on a custom
-  carrier PCB, for lowest power and a single integrated board.
-  [[buy]](https://s.click.aliexpress.com/e/_c2yM9y1r)
+- **Final:** Seeed **XIAO nRF54LM20A Sense** on a custom carrier PCB, for lowest
+  power and a single integrated board — its on-board 6-axis IMU (LSM6DS3TR-C),
+  PDM mic (MSM261DGT006) and nPM1300 PMIC fold most of the discrete sensors onto
+  the module. Firmware bring-up: [`firmware-nrf54lm20a/`](firmware-nrf54lm20a).
+  [[buy]](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html)
+  — or the **XIAO nRF54L15 Sense**
+  [[buy]](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)
 
 > Part of the open beehive-monitoring ecosystem alongside **HiveScale** (weight /
 > external sensing) and **BeeCounter** (entrance traffic).
@@ -30,12 +34,12 @@ the hive on a tiny wireless board, avoiding the cabling a wired sensor needs.
 
 ## Sensors
 
-| Function | Prototype (breakout) | Final (SMD) | Interface |
+| Function | Prototype (breakout) | Final (XIAO nRF54LM20A Sense) | Interface |
 |---|---|---|---|
-| 3-axis vibration (swarm prediction, ~20 Hz) | LIS3DH | LIS2DH12 | I²C |
-| Acoustic FFT (piping, hum, stress) | MP34DT01 | MP34DT06 | PDM |
-| Temperature + humidity | SHT40 | SHT40 | I²C |
-| Barometric pressure | — | LPS22HB | I²C |
+| 3-axis vibration (swarm prediction, ~20 Hz) | LIS3DH | LSM6DS3TR-C (on-board 6-axis IMU) | I²C/SPI |
+| Acoustic FFT (piping, hum, stress) | MP34DT01 | MSM261DGT006 (on-board PDM mic) | PDM |
+| Temperature + humidity | SHT40 | SHT40 (external) | I²C |
+| Barometric pressure | — | LPS22HB (external, optional) | I²C |
 
 Vibration and acoustics are analysed into the same FFT bands as HiveScale, so a
 value means the same thing across the ecosystem.
@@ -50,7 +54,9 @@ value means the same thing across the ecosystem.
   radio is on only when a central connects. Months on a CR2477 / LiPo.
 - **Firmware-over-BLE (OTA)** — HiveScale relays new images over GATT.
 - **Open hardware** — KiCad design + JLCPCB-ready BOM for the final carrier PCB.
-- **PlatformIO + Arduino** — flashes over USB-C; no programmer needed on either XIAO.
+- **Flashes over USB-C** — no external programmer on either XIAO: the ESP32-C6
+  prototype builds with PlatformIO/Arduino; the nRF54LM20A Sense builds with the
+  nRF Connect SDK (Zephyr) and flashes through its on-board CMSIS-DAP debugger.
 
 ---
 
@@ -58,12 +64,13 @@ value means the same thing across the ecosystem.
 
 ```
 HiveInside/
-├── firmware/        PlatformIO project (XIAO ESP32-C6 / Arduino)
+├── firmware-esp32-c6/    PlatformIO project (XIAO ESP32-C6 / Arduino) — prototype
 │   ├── platformio.ini
-│   ├── include/     config + pin map
-│   └── src/         main + sensor + BLE modules
-├── hardware/        KiCad design + JLCPCB BOM (XIAO nRF52840 carrier)
-├── docs/            prototype, wiring, flashing, OTA, Home Assistant
+│   ├── include/          config + pin map
+│   └── src/              main + sensor + BLE modules
+├── firmware-nrf54lm20a/  nRF Connect SDK / Zephyr project (XIAO nRF54LM20A Sense) — final
+├── hardware/             KiCad design + JLCPCB BOM (XIAO nRF54LM20A Sense carrier)
+├── docs/                 prototype, wiring, flashing, OTA, Home Assistant
 └── README.md
 ```
 

@@ -102,6 +102,10 @@ During a transfer HiveInside suppresses deep sleep and skips measurement
 * Transfer time is roughly `image_size / (chunk × writes-per-second)`. With a
   negotiated MTU of ~247 (chunk ≈ 244 B) and write-with-response flow control,
   expect a few minutes for a ~1.3 MB image — acceptable for an infrequent update.
-* This is prototype firmware (XIAO ESP32-C6). The final XIAO nRF52840 board will
-  carry the same GATT protocol so the HiveScale side does not change, even though
-  its on-device flash handling (nRF52 DFU rather than ESP `Update.h`) differs.
+* This is prototype firmware (XIAO ESP32-C6). The final XIAO nRF54LM20A Sense
+  board runs the nRF Connect SDK (Zephyr), so its on-device flash handling is
+  Zephyr **MCUboot/DFU** rather than ESP `Update.h`. Note the `firmware-nrf54lm20a/`
+  bring-up currently favours a **non-connectable BLE beacon** for lowest power
+  (see its README); the connectable-GATT OTA relay described here maps cleanly to
+  the ESP32-C6 build, and would apply to the nRF54 build only if/when it adds a
+  connectable GATT service.

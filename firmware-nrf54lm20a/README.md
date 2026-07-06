@@ -13,6 +13,14 @@ power and a single integrated board (on-board IMU + PDM mic).
   hardware, so we drop the software sinc decimator the ESP32-C6 needed.
 - **Later:** external **SHT40** (temp/humidity) over I²C.
 
+> **Alternative board — [XIAO nRF54L15 Sense](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html).**
+> Same on-board sensors (LSM6DS3TR-C IMU + MSM261DGT006 PDM mic) and the same
+> nRF Connect SDK / Zephyr + CMSIS-DAP flow, on the smaller nRF54L15 SoC. Because
+> this firmware is devicetree-driven (no hard-coded pins), it retargets by
+> swapping only the `west` board: `-b xiao_nrf54l15/nrf54l15/cpuapp`. The nRF54L15
+> has less RAM/flash than the LM20A, which matters only once the FFT + capture
+> buffers land (roadmap steps 2–4) — the LM20A is the recommended default.
+
 ## Why nRF Connect SDK (and yes, it's an RTOS)
 
 nRF Connect SDK (NCS) **is** Zephyr RTOS + Nordic's BLE stack and drivers —
