@@ -44,14 +44,16 @@
 
 /* The Sense module powers the IMU and the PDM microphone from the nPM1300's
  * LDO1, but the stock board definition pins LDO1 to 1.8 V — too low for
- * either part. Widening min/max to 3.3 V both lets the regulator framework
- * bring the rail up at boot (regulator-boot-on is inherited) and allows the
- * explicit 3.3 V request in src/power.c to succeed. */
+ * either part. Pin min/max/init to 3.3 V and enable the rail at boot so it is
+ * already correct before any code runs; src/power.c then re-asserts 3.3 V and
+ * waits for the parts to settle. regulator-init-microvolt makes the rail
+ * correct even if power.c is ever compiled out (belt and suspenders). */
 &pmic {
 	regulators {
 		LDO1 {
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
+			regulator-init-microvolt = <3300000>;
 			regulator-boot-on;
 		};
 	};
