@@ -6,9 +6,9 @@
  *
  * Everything else the firmware needs is already enabled by the upstream
  * board definition: i2c22 (the XIAO header bus, external SHT40), i2c30
- * (internal bus with the LSM6DS3TR-C at 0x6a), the nPM1300 charger on the
- * bit-banged pmic_i2c bus, and the led0/sw0 aliases. Peripherals are
- * resolved by compatible in the sources, so no labels are referenced there.
+ * (internal bus with the LSM6DS3TR-C at 0x6a), and the led0/sw0 aliases.
+ * The PMIC bit-banged I2C pins are overridden below to match the Sense
+ * board routing used by Seeed's nRF54LM20A peripheral examples.
  */
 
 /* Bluetooth HCI: the SoC devicetree ships the software link-layer
@@ -32,6 +32,16 @@
 	status = "okay";
 };
 
+/* The early board DTS used GPIO1.15/16 for this bus.  The Sense module
+ * routes the nPM1300 to GPIO1.18 (SDA) and GPIO1.17 (SCL); without this
+ * override the PMIC cannot be reached, leaving the sensor rail and battery
+ * gauge unavailable. */
+&pmic_i2c {
+	sda-gpios = <&gpio1 18 GPIO_ACTIVE_HIGH>;
+	scl-gpios = <&gpio1 17 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+};
+
 /* The Sense module powers the IMU and the PDM microphone from the nPM1300's
  * LDO1, but the stock board definition pins LDO1 to 1.8 V — too low for
  * either part. Widening min/max to 3.3 V both lets the regulator framework
@@ -42,6 +52,7 @@
 		LDO1 {
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
+			regulator-boot-on;
 		};
 	};
 };

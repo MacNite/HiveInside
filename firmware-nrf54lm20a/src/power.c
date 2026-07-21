@@ -3,20 +3,21 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 
-/* The nPM1300 regulator children are named nodes (ldo1, buck1, ...) under
+/* The nPM1300 regulator children are named nodes (LDO1, BUCK1, ...) under
  * the node with compatible `nordic,npm1300-regulator`, so LDO1 is resolved
  * structurally — no board-specific label needed. */
 #if DT_HAS_COMPAT_STATUS_OKAY(nordic_npm1300_regulator) &&                     \
 	DT_NODE_EXISTS(                                                        \
 		DT_CHILD(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_npm1300_regulator), \
-			 ldo1))
+			 LDO1))
 
 #include <zephyr/drivers/regulator.h>
 
 #define LDO1_NODE \
-	DT_CHILD(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_npm1300_regulator), ldo1)
+	DT_CHILD(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_npm1300_regulator), LDO1)
 
 static const struct device *const ldo1 = DEVICE_DT_GET(LDO1_NODE);
 
@@ -39,6 +40,9 @@ void power_init(void)
 			return;
 		}
 	}
+	/* The IMU and microphone share this rail.  Give both parts time to
+	 * leave reset before their first I2C/PDM transaction. */
+	k_msleep(20);
 	printk("[PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)\n");
 }
 
