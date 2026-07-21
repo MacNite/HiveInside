@@ -1,7 +1,7 @@
 # HiveInside — XIAO ESP32-C6 prototype
 
 A breadboard-friendly bring-up of the HiveInside sensor suite on cheap modules,
-**before** the XIAO nRF54LM20A Sense final board. It ports the proven LIS3DH vibration
+**before** the XIAO nRF54LM20A Sense target. It ports the proven LIS3DH vibration
 FFT code from [HiveScale](https://github.com/MacNite/HiveScale), captures
 acoustics with a **PDM MEMS microphone** (MP34DT01), and exposes the readings
 over a **connectable BLE GATT server**. Firmware:

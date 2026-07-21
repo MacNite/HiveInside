@@ -1,7 +1,7 @@
 // config.h — HiveInside XIAO ESP32-C6 prototype: pins, sensor settings, BLE mode.
 //
 // This is a *prototype* firmware that brings the HiveInside sensor suite up on
-// cheap, widely-available parts before the XIAO nRF54LM20A Sense final board:
+// cheap, widely-available parts before the XIAO nRF54LM20A Sense target:
 //
 //   * Seeed XIAO ESP32-C6  — MCU + BLE 5 (Bluetooth LE) radio, USB-C, LiPo charger
 //   * LIS3DH               — 3-axis accelerometer (I2C)        -> swarm vibration
