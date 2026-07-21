@@ -1,10 +1,10 @@
 # HiveInside
 
 A stand-alone, battery-powered **in-hive environmental and acoustic sensor** for
-beehive monitoring. It exposes its readings over **BLE as a connectable GATT
-server** and pairs with the [HiveScale](https://github.com/MacNite/HiveScale)
-ecosystem, where a HiveScale node connects each cycle and bridges the data to the
-backend.
+beehive monitoring. It broadcasts its readings over **BLE as a beacon** that the
+[HiveScale](https://github.com/MacNite/HiveScale) / HiveHub ecosystem picks up
+with a passive scan each cycle and bridges to the backend. (The deprecated
+ESP32-C6 prototype instead served the readings as a connectable GATT server.)
 
 - **Primary target:** Seeed **XIAO nRF54LM20A Sense** with an external SHT40, for low power and a
   compact integrated sensor platform — its on-board 6-axis IMU (LSM6DS3TR-C),
@@ -47,13 +47,21 @@ value means the same thing across the ecosystem.
 
 ## Key features
 
+- **BLE beacon transport (nRF54LM20A)** — the full measurement (climate,
+  vibration + acoustic FFT bands, battery) broadcasts continuously as a
+  26-byte manufacturer-data advertisement that HiveHub decodes with a passive
+  scan. No connection, pairing window, or wake-sync schedule needed.
+- **Ultra-low power** — the nRF54 idles with only the ~1 s advertiser
+  running (a few µA); no deep-sleep rendezvous machinery required, unlike the
+  ESP32-C6 prototype's HiveScale-scheduled wake sync.
+- **Firmware-over-BLE (OTA)** — implemented on the deprecated ESP32-C6
+  prototype. The nRF54LM20A firmware exposes the OTA GATT characteristics as
+  a placeholder (transfers are rejected up front); MCUboot/DFU integration is
+  still to come.
 - **Connectable GATT server** — provided by the deprecated ESP32-C6 prototype,
   with standard Battery + Environmental-Sensing services plus a custom JSON
-  characteristic carrying the full FFT dataset.
-- **Ultra-low power** — the target design is intended for deep sleep with
-  HiveScale-scheduled wake sync; nRF54LM20A firmware is still in bring-up.
-- **Firmware-over-BLE (OTA)** — implemented on the deprecated ESP32-C6 prototype;
-  not yet implemented for nRF54LM20A bring-up firmware.
+  characteristic carrying the full FFT dataset. The nRF54 node keeps a
+  minimal GATT service for firmware-version/board discovery.
 - **PlatformIO with Zephyr** — the primary nRF54LM20A workflow keeps standard
   Zephyr source and configuration files while PlatformIO drives builds and uploads.
 
@@ -109,11 +117,16 @@ deprecated prototype's wiring and measurement JSON.
 
 ## Status
 
-🚧 **nRF54LM20A bring-up, not yet hardware-validated.** The primary firmware is
-currently a Zephyr blinky/console bring-up application; sensor, BLE, MCUboot, and
-DFU integration remain to be implemented. The deprecated ESP32-C6 prototype
-retains its sensor, GATT, and OTA implementation for reference. See
-[`docs/wiring.md`](docs/wiring.md) for the XIAO and SHT40 connection reference.
+🚧 **nRF54LM20A port complete in software, not yet hardware-validated.** The
+primary firmware now implements the full sensor suite (SHT40, IMU vibration
+FFT, PDM acoustic FFT, nPM1300 battery), the BLE measurement beacon HiveHub
+ingests, and the version GATT characteristic. Firmware-over-BLE is a
+placeholder (MCUboot/DFU integration remains), and the port has not yet been
+flashed to hardware — see the bring-up checklist in
+[`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md). The
+deprecated ESP32-C6 prototype retains its GATT + OTA implementation for
+reference. See [`docs/wiring.md`](docs/wiring.md) for the XIAO and SHT40
+connection reference.
 
 ## License
 

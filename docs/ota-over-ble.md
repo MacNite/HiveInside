@@ -107,8 +107,12 @@ During a transfer HiveInside suppresses deep sleep and skips measurement
 * This is **deprecated** ESP32-C6 prototype firmware. Its Arduino `Update.h`
   implementation and dual-OTA partition table remain supported for historical
   testing and migration reference.
-* The primary XIAO nRF54LM20A Sense firmware is PlatformIO with Zephyr bring-up
-  firmware. MCUboot/DFU integration has **not** been implemented, so BLE OTA does
-  not yet work on that target. A future nRF54 OTA design must add and validate
-  MCUboot/DFU and the required BLE transport; it does not use this ESP32-specific
-  `Update.h` flow.
+* The primary XIAO nRF54LM20A Sense firmware exposes the OTA characteristics
+  above as a **placeholder**: the UUIDs, opcodes and status framing are in
+  place (`firmware-nrf54lm20a/src/gatt_hive.c`), but MCUboot/DFU is **not**
+  integrated, so the device rejects `BEGIN` at the ATT level. This makes a
+  HiveHub relay fail fast — "OTA BEGIN write failed" — *before* it downloads
+  and streams an image, instead of wasting a multi-minute transfer. The
+  future real implementation keeps this wire contract and replaces the
+  handlers with MCUboot slot writes + CRC verify; it does not use the
+  ESP32-specific `Update.h` flow.
