@@ -1,0 +1,47 @@
+/*
+ * app.overlay — HiveInside adjustments to the XIAO nRF54LM20A board DT.
+ *
+ * Kept identical to zephyr/app.overlay (the copy PlatformIO's Seeed Zephyr
+ * builder reads); edit both together.
+ *
+ * Everything else the firmware needs is already enabled by the upstream
+ * board definition: i2c22 (the XIAO header bus, external SHT40), i2c30
+ * (internal bus with the LSM6DS3TR-C at 0x6a), the nPM1300 charger on the
+ * bit-banged pmic_i2c bus, and the led0/sw0 aliases. Peripherals are
+ * resolved by compatible in the sources, so no labels are referenced there.
+ */
+
+/* Bluetooth HCI: the SoC devicetree ships the software link-layer
+ * controller node disabled, and not every board definition revision enables
+ * it or sets the chosen entry (upstream Zephyr's does, the pinned Seeed
+ * platform's does not) — so do both here. Redundant where the board already
+ * did it, required everywhere else. */
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_controller;
+	};
+};
+
+&bt_hci_controller {
+	status = "okay";
+};
+
+/* On-board PDM microphone (MSM261DGT006). The board definition provides
+ * pinctrl and clock-source but leaves the controller disabled. */
+&pdm20 {
+	status = "okay";
+};
+
+/* The Sense module powers the IMU and the PDM microphone from the nPM1300's
+ * LDO1, but the stock board definition pins LDO1 to 1.8 V — too low for
+ * either part. Widening min/max to 3.3 V both lets the regulator framework
+ * bring the rail up at boot (regulator-boot-on is inherited) and allows the
+ * explicit 3.3 V request in src/power.c to succeed. */
+&pmic {
+	regulators {
+		LDO1 {
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+		};
+	};
+};
