@@ -6,8 +6,8 @@ server** and pairs with the [HiveScale](https://github.com/MacNite/HiveScale)
 ecosystem, where a HiveScale node connects each cycle and bridges the data to the
 backend.
 
-- **Primary target:** Seeed **XIAO nRF54LM20A Sense** on a custom carrier PCB, for lowest
-  power and a single integrated board — its on-board 6-axis IMU (LSM6DS3TR-C),
+- **Primary target:** Seeed **XIAO nRF54LM20A Sense** with an external SHT40, for low power and a
+  compact integrated sensor platform — its on-board 6-axis IMU (LSM6DS3TR-C),
   PDM mic (MSM261DGT006) and nPM1300 PMIC fold most of the discrete sensors onto
   the module. The default contributor workflow is PlatformIO with Zephyr in
   [`firmware-nrf54lm20a/`](firmware-nrf54lm20a).
@@ -54,7 +54,6 @@ value means the same thing across the ecosystem.
   HiveScale-scheduled wake sync; nRF54LM20A firmware is still in bring-up.
 - **Firmware-over-BLE (OTA)** — implemented on the deprecated ESP32-C6 prototype;
   not yet implemented for nRF54LM20A bring-up firmware.
-- **Open hardware** — KiCad design + JLCPCB-ready BOM for the final carrier PCB.
 - **PlatformIO with Zephyr** — the primary nRF54LM20A workflow keeps standard
   Zephyr source and configuration files while PlatformIO drives builds and uploads.
 
@@ -69,7 +68,7 @@ HiveInside/
 │   ├── include/          config + pin map
 │   └── src/              main + sensor + BLE modules
 ├── firmware-nrf54lm20a/  PlatformIO / Zephyr project (XIAO nRF54LM20A Sense) — primary target
-├── hardware/             KiCad design + JLCPCB BOM (XIAO nRF54LM20A Sense carrier)
+├── enclosure/            Current 3D-printable enclosure files
 ├── docs/                 prototype, wiring, flashing, OTA, Home Assistant
 └── README.md
 ```
@@ -113,9 +112,8 @@ deprecated prototype's wiring and measurement JSON.
 🚧 **nRF54LM20A bring-up, not yet hardware-validated.** The primary firmware is
 currently a Zephyr blinky/console bring-up application; sensor, BLE, MCUboot, and
 DFU integration remain to be implemented. The deprecated ESP32-C6 prototype
-retains its sensor, GATT, and OTA implementation for reference. Hardware design
-for the final board is documented in
-[`docs/wiring.md`](docs/wiring.md).
+retains its sensor, GATT, and OTA implementation for reference. See
+[`docs/wiring.md`](docs/wiring.md) for the XIAO and SHT40 connection reference.
 
 ## License
 
