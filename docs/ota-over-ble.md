@@ -23,7 +23,7 @@ so a dropped or corrupted transfer always leaves the device on its old image.
 
 ## Partition layout
 
-`firmware/partitions_4mb_ota_no_fs.csv` gives the C6 two app slots (`ota_0` /
+`firmware-esp32-c6/partitions_4mb_ota_no_fs.csv` gives the C6 two app slots (`ota_0` /
 `ota_1`, ~1.94 MB each). It is selected in `platformio.ini` via
 `board_build.partitions`. Without a dual-OTA table `Update.begin()` has nowhere
 to write the new image. This matches HiveScale's table of the same name.
@@ -32,8 +32,9 @@ to write the new image. This matches HiveScale's table of the same name.
 
 All OTA characteristics live in the existing custom HiveInside service
 `8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01`. UUIDs and framing must stay in sync with
-HiveScale `firmware/src/ble_sensor.cpp` (the `HI_OTA_*` constants) and HiveInside
-`firmware/src/ble_link.cpp` (the `CHR_OTA_*` / `OTA_OP_*` constants).
+HiveScale `firmware/src/ble_sensor.cpp` (the `HI_OTA_*` constants) and the
+deprecated HiveInside ESP32-C6 prototype's
+`firmware-esp32-c6/src/ble_link.cpp` (the `CHR_OTA_*` / `OTA_OP_*` constants).
 
 | Characteristic | UUID | Props | Payload |
 |---|---|---|---|
@@ -90,7 +91,8 @@ During a transfer HiveInside suppresses deep sleep and skips measurement
 ## Build flags
 
 * HiveInside: `-DHIVEINSIDE_OTA_ENABLED=1` (default in `platformio.ini`).
-* HiveScale: `HIVEINSIDE_OTA_ENABLED` (default `1` in `firmware/include/config.h`).
+* HiveScale: `HIVEINSIDE_OTA_ENABLED` (default `1` in its
+  `firmware/include/config.h`).
   Independent of `HIVEINSIDE_USE_GATT`, which only selects how *measurements* are
   read — OTA needs only a GATT-client connection.
 
@@ -102,10 +104,11 @@ During a transfer HiveInside suppresses deep sleep and skips measurement
 * Transfer time is roughly `image_size / (chunk × writes-per-second)`. With a
   negotiated MTU of ~247 (chunk ≈ 244 B) and write-with-response flow control,
   expect a few minutes for a ~1.3 MB image — acceptable for an infrequent update.
-* This is prototype firmware (XIAO ESP32-C6). The final XIAO nRF54LM20A Sense
-  board runs the nRF Connect SDK (Zephyr), so its on-device flash handling is
-  Zephyr **MCUboot/DFU** rather than ESP `Update.h`. Note the `firmware-nrf54lm20a/`
-  bring-up currently favours a **non-connectable BLE beacon** for lowest power
-  (see its README); the connectable-GATT OTA relay described here maps cleanly to
-  the ESP32-C6 build, and would apply to the nRF54 build only if/when it adds a
-  connectable GATT service.
+* This is **deprecated** ESP32-C6 prototype firmware. Its Arduino `Update.h`
+  implementation and dual-OTA partition table remain supported for historical
+  testing and migration reference.
+* The primary XIAO nRF54LM20A Sense firmware is PlatformIO with Zephyr bring-up
+  firmware. MCUboot/DFU integration has **not** been implemented, so BLE OTA does
+  not yet work on that target. A future nRF54 OTA design must add and validate
+  MCUboot/DFU and the required BLE transport; it does not use this ESP32-specific
+  `Update.h` flow.

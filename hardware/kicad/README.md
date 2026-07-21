@@ -13,9 +13,10 @@ full wiring and layout notes are in [`../../docs/wiring.md`](../../docs/wiring.m
 Using the XIAO **Sense** module means the board inherits not just the module's
 DC/DC, regulator, USB-C and **nPM1300** LiPo charger / fuel gauge, but also its
 **on-board 6-axis IMU (LSM6DS3TR-C) and PDM mic (MSM261DGT006)** — so the carrier
-drops the discrete accelerometer, mic and mic-gating parts entirely. Flashing is
-over USB-C through the module's on-board CMSIS-DAP debugger, so there is no SWD
-header to populate.
+drops the discrete accelerometer, mic and mic-gating parts entirely. The pinned
+PlatformIO board definition selects CMSIS-DAP for uploads; it does not configure
+UF2. Confirm the exact board revision and programming route before deciding
+whether to populate an SWD header.
 
 ## To do
 
