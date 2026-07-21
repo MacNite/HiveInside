@@ -18,6 +18,10 @@ pio device monitor
 
 `platformio.ini` selects `seeed-xiao-nrf54lm20a`, Zephyr, and the GCC Arm
 Embedded toolchain version used by Seeed's current nRF54LM20A Zephyr examples.
+The Seeed PlatformIO platform is pinned to commit
+`9ba53b691fb007d9c1b8fd37600cc71d6702125a` so builds do not silently follow
+upstream `main`. Test candidate revisions with the clean PlatformIO build below
+before intentionally updating this pin.
 The Seeed board definition configures CMSIS-DAP as the default upload protocol;
 connect a compatible SWD probe before uploading. If no probe is connected,
 `pio run -t upload` will not complete.
@@ -25,6 +29,24 @@ connect a compatible SWD probe before uploading. If no probe is connected,
 Build output is written under
 `.pio/build/seeed-xiao-nrf54lm20a/`, including `zephyr/zephyr.elf` and the
 corresponding Zephyr image formats produced by the selected platform version.
+
+### Updating the pinned Seeed platform
+
+Update this dependency only intentionally: choose a candidate commit from
+`Seeed-Studio/platform-seeedboards`, replace the full SHA in `platformio.ini`,
+then run a clean build to validate the board and framework integration:
+
+```bash
+cd firmware-nrf54lm20a
+pio run -t clean
+pio run
+```
+
+Confirm that PlatformIO resolved the platform checkout to that exact SHA (for
+example, with `git -C ~/.platformio/platforms/SeeedStudio rev-parse HEAD`) before
+committing the updated SHA and this documentation. Review any Zephyr framework
+or GCC Arm Embedded toolchain changes introduced by the candidate commit; do
+not use an automatic dependency updater for this platform.
 
 ## Zephyr / west alternative
 
