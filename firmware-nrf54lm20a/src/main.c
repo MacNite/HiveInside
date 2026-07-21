@@ -8,10 +8,11 @@
  * Board target: xiao_nrf54lm20a/nrf54lm20a/cpuapp
  *
  * We drive the LED through the `led0` devicetree alias that the Seeed board
- * files provide. The LED's active-low wiring (XIAO user LEDs are active-low)
- * is encoded as a GPIO_ACTIVE_LOW flag in the board's devicetree, so we toggle
- * *logically* and let Zephyr translate to the right electrical level. That is
- * why this file has no board-specific pin numbers — it is portable by design.
+ * files provide (the blue user LED, wired active-high on this board). The
+ * LED's polarity is encoded as a GPIO flag in the board's devicetree, so we
+ * toggle *logically* and let Zephyr translate to the right electrical level.
+ * That is why this file has no board-specific pin numbers — it is portable by
+ * design.
  */
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>

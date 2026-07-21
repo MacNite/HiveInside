@@ -8,9 +8,9 @@ external.
 
 - Prototype pin map: [`esp32c6-prototype.md`](esp32c6-prototype.md) and
   `firmware-esp32-c6/include/config.h`.
-- Final board ([buy](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html),
-  or the [XIAO nRF54L15 Sense](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)):
-  this document.
+- Final board ([buy](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html)):
+  this document. (The [XIAO nRF54L15 Sense](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)
+  fits the same carrier, but this repo's firmware targets the nRF54LM20A only.)
 
 ---
 

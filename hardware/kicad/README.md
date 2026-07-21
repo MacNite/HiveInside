@@ -5,7 +5,9 @@ This directory will hold the KiCad schematic and PCB layout for the HiveInside
 [XIAO nRF54LM20A Sense](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html)
 module reflow-mounted (or the
 [XIAO nRF54L15 Sense](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)
-— pin-compatible for this design), plus the external I²C climate sensors.
+— pin-compatible for this carrier design, but note that the firmware in
+[`firmware-nrf54lm20a/`](../../firmware-nrf54lm20a) targets the nRF54LM20A
+only), plus the external I²C climate sensors.
 
 The bill of materials with JLCPCB part numbers is in [`../bom.csv`](../bom.csv);
 full wiring and layout notes are in [`../../docs/wiring.md`](../../docs/wiring.md).
