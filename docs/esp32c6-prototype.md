@@ -4,7 +4,9 @@ A breadboard-friendly bring-up of the HiveInside sensor suite on cheap modules,
 **before** the XIAO nRF54LM20A Sense final board. It ports the proven LIS3DH vibration
 FFT code from [HiveScale](https://github.com/MacNite/HiveScale), captures
 acoustics with a **PDM MEMS microphone** (MP34DT01), and exposes the readings
-over a **connectable BLE GATT server**. Firmware: [`firmware/`](../firmware).
+over a **connectable BLE GATT server**. Firmware:
+[`firmware-esp32-c6/`](../firmware-esp32-c6). This is a **deprecated** prototype
+retained for historical testing and migration reference.
 
 ## Parts
 
@@ -131,7 +133,8 @@ resistors). To skip battery telemetry, build with `-DENABLE_BATTERY=0`.
 
 The full measurement is a compact JSON string (read or notify), trimmed under the
 512-byte ATT limit to carry exactly the fields the HiveScale GATT reader
-(`firmware/src/ble_sensor.cpp::gattReadHiveInside`) consumes:
+(`firmware-esp32-c6/src/ble_link.cpp`) exposes / HiveScale's
+`firmware/src/ble_sensor.cpp::gattReadHiveInside` consumes:
 
 | Field | Units |
 |---|---|

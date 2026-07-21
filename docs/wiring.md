@@ -7,7 +7,7 @@ on-board** — only the I²C climate sensors, the button and the battery are
 external.
 
 - Prototype pin map: [`esp32c6-prototype.md`](esp32c6-prototype.md) and
-  `firmware/include/config.h`.
+  `firmware-esp32-c6/include/config.h`.
 - Final board ([buy](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html),
   or the [XIAO nRF54L15 Sense](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)):
   this document.
@@ -57,9 +57,9 @@ only has to break out the external I²C climate sensors and the button:
 > from the old nRF52840 `P0.xx`/`P1.xx` map, and the Sense board reserves several
 > pads for its on-board IMU/mic. The nRF54LM20A does have a **hardware PDM
 > peripheral** (PDM→PCM in hardware, so no software decimator is needed), but on
-> this board the mic is already routed on-module. Flashing is over USB-C via the
-> board's on-board **CMSIS-DAP** debugger (`west flash`); some board revisions
-> also expose a UF2 drag-and-drop path — check the Seeed wiki.
+> this board the mic is already routed on-module. Use the primary PlatformIO
+> workflow in [`flashing.md`](flashing.md) for uploads; its pinned board
+> definition selects CMSIS-DAP and does not configure UF2.
 
 ---
 

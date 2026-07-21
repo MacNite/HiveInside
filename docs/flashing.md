@@ -1,41 +1,51 @@
 # Flashing HiveInside
 
-Both target boards flash over **USB-C with no external programmer** — that's a
-deliberate reason for choosing the XIAO modules.
+## Primary target: XIAO nRF54LM20A Sense
 
-## Prototype: XIAO ESP32-C6
-
-The C6 flashes over its native USB. In [`firmware/`](../firmware):
-
-```bash
-pio run -e c6_gatt -t upload
-```
-
-or use **PlatformIO: Upload** in VSCodium. If the port isn't found, hold **BOOT**,
-tap **RESET**, then release BOOT to enter download mode and upload again.
-
-## Final: XIAO nRF54LM20A Sense
-
-The XIAO nRF54LM20A Sense builds with the **nRF Connect SDK (Zephyr)** — see
-[`firmware-nrf54lm20a/`](../firmware-nrf54lm20a). It carries an **on-board
-CMSIS-DAP debugger (SAMD11)**, so it flashes over plain USB-C with no external
-J-Link:
+The default contributor workflow for the final target is **PlatformIO with
+Zephyr**. The project keeps ordinary Zephyr application source and configuration
+files; PlatformIO is the build, upload, and monitor interface.
 
 ```bash
-west build -b xiao_nrf54lm20a/nrf54lm20a/cpuapp firmware-nrf54lm20a
-west flash
+cd firmware-nrf54lm20a
+pio run
+pio run -t upload
+pio device monitor
 ```
 
-Some board revisions also expose a **UF2 drag-and-drop** path: double-tap
-**RESET** to mount the board as a USB drive and copy `build/zephyr/zephyr.uf2`
-across. Check the [Seeed wiki](https://wiki.seeedstudio.com/xiao_nrf54lm20a_getting_started/)
-for your revision.
+`pio run -t upload` uses the `cmsis-dap` upload protocol selected by this
+project's pinned Seeed PlatformIO board definition. The checked-in project does
+not override that default or configure UF2. Follow the PlatformIO upload output
+for the resolved platform revision and connected debug hardware.
 
-> The nRF54LM20A Sense firmware target is the planned final build; today the
-> buildable project is the ESP32-C6 prototype above. The
-> [**XIAO nRF54L15 Sense**](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)
-> is a drop-in alternative — same on-board sensors, same Zephyr/CMSIS-DAP flow;
-> only the `west` board target changes (`xiao_nrf54l15/...`).
+The current nRF54LM20A firmware is **bring-up firmware** (LED and console), not
+a complete application. It has no MCUboot/DFU integration, so BLE OTA is not yet
+available on this target. See [`firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md)
+for the PlatformIO details and the advanced `west` alternative.
 
-After deployment, both boards also update over the air — see
-[`ota-over-ble.md`](ota-over-ble.md).
+### Advanced alternative: nRF Connect SDK / `west`
+
+Contributors already using a compatible nRF Connect SDK or Zephyr workspace may
+build the same application with `west`. This is an advanced alternative rather
+than the beginner default; its board definitions and flashing setup depend on
+the SDK workspace in use. Do not substitute it for the PlatformIO instructions
+above unless you have set up that workspace. The board definition lists pyOCD,
+probe-rs, and J-Link as optional supported protocols; they are not the default
+workflow and require a verified compatible probe and board revision.
+
+## Deprecated prototype: XIAO ESP32-C6
+
+The ESP32-C6 PlatformIO project is retained for historical testing and migration
+reference. It remains buildable and retains its OTA implementation, but is not
+the primary firmware path:
+
+```bash
+cd firmware-esp32-c6
+pio run -e c6_gatt_deprecated -t upload
+```
+
+The compatibility environment `c6_gatt` remains available for existing commands
+and CI. The C6 uses its native USB upload flow. If the port is not found, hold
+**BOOT**, tap **RESET**, then release **BOOT** to enter download mode and retry.
+
+See [`ota-over-ble.md`](ota-over-ble.md) for the ESP32-C6 prototype OTA protocol.

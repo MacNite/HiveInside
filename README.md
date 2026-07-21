@@ -6,16 +6,15 @@ server** and pairs with the [HiveScale](https://github.com/MacNite/HiveScale)
 ecosystem, where a HiveScale node connects each cycle and bridges the data to the
 backend.
 
-- **Now (prototype):** Seeed **XIAO ESP32-C6** + breakout sensors — the firmware
-  in [`firmware/`](firmware) targets this board.
-  [[buy]](https://s.click.aliexpress.com/e/_c43qaNVb)
-- **Final:** Seeed **XIAO nRF54LM20A Sense** on a custom carrier PCB, for lowest
+- **Primary target:** Seeed **XIAO nRF54LM20A Sense** on a custom carrier PCB, for lowest
   power and a single integrated board — its on-board 6-axis IMU (LSM6DS3TR-C),
   PDM mic (MSM261DGT006) and nPM1300 PMIC fold most of the discrete sensors onto
-  the module. Firmware bring-up: [`firmware-nrf54lm20a/`](firmware-nrf54lm20a).
+  the module. The default contributor workflow is PlatformIO with Zephyr in
+  [`firmware-nrf54lm20a/`](firmware-nrf54lm20a).
   [[buy]](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html)
-  — or the **XIAO nRF54L15 Sense**
-  [[buy]](https://www.seeedstudio.com/XIAO-nRF54L15-Sense-p-6494.html)
+- **Deprecated prototype:** Seeed **XIAO ESP32-C6** + breakout sensors. Its
+  PlatformIO firmware remains in [`firmware-esp32-c6/`](firmware-esp32-c6) for
+  historical testing and migration reference; it is not the target for new work.
 
 > Part of the open beehive-monitoring ecosystem alongside **HiveScale** (weight /
 > external sensing) and **BeeCounter** (entrance traffic).
@@ -48,15 +47,16 @@ value means the same thing across the ecosystem.
 
 ## Key features
 
-- **Connectable GATT server** — standard Battery + Environmental-Sensing services
-  plus a custom JSON characteristic carrying the full FFT dataset.
-- **Ultra-low power** — deep sleep with HiveScale-scheduled wake sync, so the
-  radio is on only when a central connects. Months on a CR2477 / LiPo.
-- **Firmware-over-BLE (OTA)** — HiveScale relays new images over GATT.
+- **Connectable GATT server** — provided by the deprecated ESP32-C6 prototype,
+  with standard Battery + Environmental-Sensing services plus a custom JSON
+  characteristic carrying the full FFT dataset.
+- **Ultra-low power** — the target design is intended for deep sleep with
+  HiveScale-scheduled wake sync; nRF54LM20A firmware is still in bring-up.
+- **Firmware-over-BLE (OTA)** — implemented on the deprecated ESP32-C6 prototype;
+  not yet implemented for nRF54LM20A bring-up firmware.
 - **Open hardware** — KiCad design + JLCPCB-ready BOM for the final carrier PCB.
-- **Flashes over USB-C** — no external programmer on either XIAO: the ESP32-C6
-  prototype builds with PlatformIO/Arduino; the nRF54LM20A Sense builds with the
-  nRF Connect SDK (Zephyr) and flashes through its on-board CMSIS-DAP debugger.
+- **PlatformIO with Zephyr** — the primary nRF54LM20A workflow keeps standard
+  Zephyr source and configuration files while PlatformIO drives builds and uploads.
 
 ---
 
@@ -64,11 +64,11 @@ value means the same thing across the ecosystem.
 
 ```
 HiveInside/
-├── firmware-esp32-c6/    PlatformIO project (XIAO ESP32-C6 / Arduino) — prototype
+├── firmware-esp32-c6/    PlatformIO project (XIAO ESP32-C6 / Arduino) — deprecated prototype
 │   ├── platformio.ini
 │   ├── include/          config + pin map
 │   └── src/              main + sensor + BLE modules
-├── firmware-nrf54lm20a/  nRF Connect SDK / Zephyr project (XIAO nRF54LM20A Sense) — final
+├── firmware-nrf54lm20a/  PlatformIO / Zephyr project (XIAO nRF54LM20A Sense) — primary target
 ├── hardware/             KiCad design + JLCPCB BOM (XIAO nRF54LM20A Sense carrier)
 ├── docs/                 prototype, wiring, flashing, OTA, Home Assistant
 └── README.md
@@ -76,26 +76,45 @@ HiveInside/
 
 ---
 
-## Quick start (XIAO ESP32-C6 prototype)
+## Quick start (XIAO nRF54LM20A Sense)
 
-1. Install **VSCodium** + the **PlatformIO** extension.
-2. Open [`firmware/`](firmware) as a PlatformIO project.
-3. Plug in a **XIAO ESP32-C6** via USB-C.
-4. Build & upload: `pio run -e c6_gatt -t upload`.
-5. Connect with a BLE client (e.g. **nRF Connect**) to read the HiveInside
-   service, or pair with a **HiveScale** node to bridge readings to the backend.
+Install PlatformIO, then use the nRF54LM20A PlatformIO project:
 
-See [`docs/esp32c6-prototype.md`](docs/esp32c6-prototype.md) for wiring + the
-measurement JSON, [`docs/flashing.md`](docs/flashing.md) for flashing both
-boards, and [`docs/homeassistant.md`](docs/homeassistant.md) for integration.
+```bash
+cd firmware-nrf54lm20a
+pio run
+pio run -t upload
+pio device monitor
+```
+
+PlatformIO builds the checked-in Zephyr application and its standard Zephyr
+configuration files. See [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md)
+for the advanced nRF Connect SDK / `west` alternative and upload limitations.
+
+### Deprecated ESP32-C6 prototype
+
+The ESP32-C6 project remains buildable for historical testing and migration
+reference. It is not the primary firmware path:
+
+```bash
+cd firmware-esp32-c6
+pio run -e c6_gatt_deprecated -t upload
+```
+
+See [`docs/flashing.md`](docs/flashing.md) for flashing details,
+[`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md) for the primary
+target, and [`docs/esp32c6-prototype.md`](docs/esp32c6-prototype.md) for the
+deprecated prototype's wiring and measurement JSON.
 
 ---
 
 ## Status
 
-🚧 **Prototype, not yet hardware-validated.** Sensor/FFT modules are ported from
-the field-tested HiveScale code; the BLE layer and XIAO pin map need a bench
-check. Hardware design for the final board is documented in
+🚧 **nRF54LM20A bring-up, not yet hardware-validated.** The primary firmware is
+currently a Zephyr blinky/console bring-up application; sensor, BLE, MCUboot, and
+DFU integration remain to be implemented. The deprecated ESP32-C6 prototype
+retains its sensor, GATT, and OTA implementation for reference. Hardware design
+for the final board is documented in
 [`docs/wiring.md`](docs/wiring.md).
 
 ## License
