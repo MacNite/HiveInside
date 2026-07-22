@@ -118,12 +118,16 @@ plus the `zephyr/` copies used by Seeed's PlatformIO builder. PlatformIO does
 
 ### Uploading
 
-The checked-in `platformio.ini` does not override the board upload setting, so
-`pio run -t upload` uses the pinned Seeed board definition's `cmsis-dap` default.
-That definition also lists pyOCD, probe-rs, and J-Link as optional protocols.
-They are not the default contributor workflow and require a verified compatible
-probe and board revision. UF2 is not configured by the checked-in board
-definition.
+The checked-in `platformio.ini` sets `upload_protocol = pyocd`, so
+`pio run -t upload` uploads over SWD via pyOCD instead of the board definition's
+`cmsis-dap`/OpenOCD default. The Seeed OpenOCD path filters for a fixed Seeed
+CMSIS-DAP VID:PID (`0x2886:0x0068`) and rejects generic external probes; pyOCD
+auto-detects any connected CMSIS-DAP probe. The board definition also lists
+probe-rs and J-Link as alternatives (`upload_protocol = probe-rs` is the
+fallback if pyOCD lacks the nRF54LM20A target pack). An external CMSIS-DAP probe
+wired to the SWD pads is required — the board has no on-board debugger and UF2
+is not configured. See [`docs/flashing.md`](../docs/flashing.md), including how
+to use a XIAO RP2040 as the probe.
 
 ### Updating the pinned Seeed platform
 
