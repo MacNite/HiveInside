@@ -118,16 +118,60 @@ plus the `zephyr/` copies used by Seeed's PlatformIO builder. PlatformIO does
 
 ### Uploading
 
-The checked-in `platformio.ini` sets `upload_protocol = pyocd`, so
-`pio run -t upload` uploads over SWD via pyOCD instead of the board definition's
-`cmsis-dap`/OpenOCD default. The Seeed OpenOCD path filters for a fixed Seeed
-CMSIS-DAP VID:PID (`0x2886:0x0068`) and rejects generic external probes; pyOCD
-auto-detects any connected CMSIS-DAP probe. The board definition also lists
-probe-rs and J-Link as alternatives (`upload_protocol = probe-rs` is the
-fallback if pyOCD lacks the nRF54LM20A target pack). An external CMSIS-DAP probe
-wired to the SWD pads is required — the board has no on-board debugger and UF2
-is not configured. See [`docs/flashing.md`](../docs/flashing.md), including how
-to use a XIAO RP2040 as the probe.
+The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (Seeed
+USB VID:PID `0x2886:0x0068`) wired to the SoC's SWD lines and exposed on the
+USB-C connector. No external probe is needed: plug the board into USB and
+`pio run -t upload` flashes over SWD through it.
+
+The checked-in `platformio.ini` sets `upload_protocol = cmsis-dap`, which drives
+the board definition's OpenOCD path. That path deliberately filters for the
+on-board debugger's fixed VID:PID (`0x2886:0x0068`), so it binds to this
+debugger and ignores unrelated CMSIS-DAP dongles.
+
+Do **not** switch this target back to `pyocd`: on the current silicon pyOCD
+aborts during APPROTECT recovery with
+`Memory transfer fault @ 0x00ffc31c-0x00ffc31f`. `cmsis-dap` (OpenOCD) is the
+supported path. The board definition still lists probe-rs and J-Link for
+contributors who deliberately wire an external probe to the SWD pads; those are
+optional, not the default. See [`docs/flashing.md`](../docs/flashing.md).
+
+### Serial console over USB
+
+The same on-board SAMD11 debugger also exposes a **USB CDC ACM serial port** and
+bridges it to the SoC's `uart20` (internal SWD-side pins P1.11 TX / P1.10 RX —
+*not* the XIAO header). That is where `printk()` and Zephyr logs come out, at
+**115200 8N1**. On Linux it enumerates as `/dev/ttyACM0` (the index can differ
+if other ACM devices are present).
+
+Identify the port and open the monitor:
+
+```bash
+# Confirm the ACM port belongs to the Seeed on-board debugger (VID 2886)
+udevadm info -q property -n /dev/ttyACM0 | grep -E 'ID_VENDOR_ID|ID_MODEL|ID_SERIAL'
+# ID_VENDOR_ID=2886  → Seeed XIAO nRF54LM20A on-board debugger
+
+pio device monitor -p /dev/ttyACM0 -b 115200
+# or just:  pio device monitor      (monitor_speed = 115200 is set in platformio.ini)
+```
+
+The banner
+
+    [HiveInside] nrf54lm20a fw 1.0.0 | BLE beacon transport
+
+is printed **once at boot**, immediately followed by the first measurement cycle
+(`[PWR] …`, `[SHT40] …`, `[ACCEL] …`, `[MIC] …`, `[BLE] …`). After that the
+device sleeps for `MEASURE_INTERVAL_MS` (≈5 min) between cycles, so attaching
+the monitor *after* boot shows nothing until the next cycle. To catch the
+banner, **press RST with the monitor already connected.**
+
+The console is a plain polled UART, so the firmware never blocks waiting for a
+terminal — it boots and keeps advertising over BLE whether or not a monitor is
+open. The nRF54's own high-speed USB (`usbhs`) is deliberately **not** used: the
+USB-C port is owned by the SAMD11, so a native USB-CDC console on the nRF54
+would enumerate nothing. Output therefore rides the debugger's UART bridge,
+which is why `prj.conf` keeps `zephyr,console = &uart20` and sets
+`CONFIG_LOG_PRINTK=n` (so `printk()` reaches the UART directly instead of the
+deferred logging pipeline — the reason the console previously looked silent).
 
 ### Updating the pinned Seeed platform
 
