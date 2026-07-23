@@ -9,6 +9,7 @@
 *.bin
 *.elf
 */build
+*.log
 
 # Editor
 .vscode/
@@ -16,11 +17,6 @@
 *.swp
 .DS_Store
 *.code-workspace
-
-# KiCad backups
-*-bak
-*.bak
-fp-info-cache
 
 # Claude Code delivery bundles
 claude-bundles/
