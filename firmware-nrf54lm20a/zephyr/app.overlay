@@ -19,11 +19,30 @@
 / {
 	chosen {
 		zephyr,bt-hci = &bt_hci_controller;
+
+		/* Console routing (see prj.conf for the full explanation).
+		 *
+		 * uart20 (P1.11 TX / P1.10 RX) is wired to the on-board SAMD11
+		 * CMSIS-DAP debugger, which bridges it to a USB CDC ACM port
+		 * (/dev/ttyACM0) over the same USB-C cable used for flashing.
+		 * The board definition already chooses uart20; re-assert it
+		 * here so the application console does not silently move if a
+		 * future board-definition bump changes the default. The XIAO
+		 * header UART is uart21 on D6/D7 — deliberately NOT the console. */
+		zephyr,console = &uart20;
+		zephyr,shell-uart = &uart20;
 	};
 };
 
 &bt_hci_controller {
 	status = "okay";
+};
+
+/* Belt-and-suspenders: the board definition already enables uart20 at
+ * 115200 8N1; keep it explicit next to the console choice above. */
+&uart20 {
+	status = "okay";
+	current-speed = <115200>;
 };
 
 /* On-board PDM microphone (MSM261DGT006). The board definition provides
