@@ -1,0 +1,15 @@
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_controller;
+		zephyr,console = &uart20;
+	};
+};
+
+&bt_hci_controller {
+	status = "okay";
+};
+
+&uart20 {
+	status = "okay";
+	current-speed = <115200>;
+};
