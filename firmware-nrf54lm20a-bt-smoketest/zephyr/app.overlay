@@ -20,3 +20,16 @@
 &pdm20 {
 	status = "okay";
 };
+
+/* Test 5: match the production nPM1300 LDO1 configuration. This rail powers
+ * the on-board IMU and PDM microphone. */
+&pmic {
+	regulators {
+		LDO1 {
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-init-microvolt = <3300000>;
+			regulator-boot-on;
+		};
+	};
+};

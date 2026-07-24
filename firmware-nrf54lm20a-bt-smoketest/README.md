@@ -18,12 +18,12 @@ the production application-level I2C, IMU, microphone-capture, FFT, GATT,
 advertising, and beacon code while retaining the exact Bluetooth
 initialisation path.
 
-## Current test: PMIC/I2C/sensor framework support
+## Current test: nPM1300 LDO1 and battery gauge
 
 Tests 1, 2, and 3 passed on the target, so this smoke test now includes
-**Test 4** of the isolation plan. It retains the production Bluetooth
-connection, L2CAP MTU, ACL buffer-size, FPU, float-formatting, main-stack,
-and PDM settings:
+**Test 5** of the isolation plan. Test 4 also passed, so this test retains the
+production Bluetooth connection, L2CAP MTU, ACL buffer-size, FPU,
+float-formatting, main-stack, PDM, and PMIC/I2C/sensor framework settings:
 
 ```ini
 CONFIG_BT_MAX_CONN=1
@@ -65,11 +65,19 @@ CONFIG_LSM6DSL=n
 
 This allows the board's existing PMIC and sensor-related devicetree drivers to
 initialise, while preserving the production choice not to start Zephyr's
-LSM6DSL driver. The LDO1 voltage/boot overlay is still excluded for the next
-test batch. Application I2C transactions, sensor reads, microphone capture,
-GATT, advertising, and beacon code remain excluded. Therefore, an MPU fault
-now points to the Test 4 framework-driver configuration or its interaction
-with the existing runtime layout, rather than those excluded subsystems.
+LSM6DSL driver.
+
+Test 5 adds the production LDO1 voltage and boot configuration, then prints
+live nPM1300 diagnostic results before calling `bt_enable()`:
+
+- whether the LDO1 regulator device is ready;
+- the result of setting LDO1 to 3.3 V and enabling it; and
+- the nPM1300 charger fuel-gauge voltage, when its sensor device is ready.
+
+Application I2C transactions, IMU reads, microphone capture, GATT,
+advertising, and beacon code remain excluded. Therefore, an MPU fault after
+these messages points to the nPM1300 Test 5 path or its interaction with the
+existing runtime layout, rather than those excluded subsystems.
 
 ## Build, upload, and monitor
 
@@ -86,6 +94,10 @@ Expected success output:
 
 ```text
 [BT-SMOKE] boot: blink then bt_enable()
+[BT-SMOKE] testing nPM1300
+[PMIC] LDO1 set 3.3V: 0
+[PMIC] LDO1 enabled: yes
+[PMIC] battery gauge: 3.900000 V
 [BT-SMOKE] calling bt_enable()
 [BT-SMOKE] PASS: Bluetooth enabled
 ```
@@ -99,6 +111,7 @@ Bluetooth configuration rather than HiveInside's sensor/beacon code.
 
 | Result | Meaning |
 | --- | --- |
-| LED blinks and `PASS` prints | The Test 1–4 runtime, PDM, and PMIC/I2C/sensor framework initialization works; continue with the LDO1 overlay batch. |
-| LED blinks, then an MPU fault occurs after `calling bt_enable()` | The minimal image reproduces the Bluetooth startup defect; application sensor/capture/beacon code and the LDO1 overlay are excluded. |
+| LDO1 and battery-gauge messages print, then `PASS` prints | The Test 1–5 runtime, PDM, PMIC framework, LDO1 configuration, and battery gauge work; proceed by adding production application modules one at a time. |
+| The PMIC messages show `not ready` or a negative error | The nPM1300/board devicetree or PMIC-driver path is the next issue to investigate; record the exact message before changing Bluetooth settings. |
+| An MPU fault occurs before or after the PMIC messages | The Test 5 nPM1300 configuration/operation is the first newly introduced trigger. |
 | No boot message or no blink | The issue is below Bluetooth and this test is not yet informative. |
