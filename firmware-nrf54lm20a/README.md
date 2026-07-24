@@ -169,9 +169,10 @@ terminal — it boots and keeps advertising over BLE whether or not a monitor is
 open. The nRF54's own high-speed USB (`usbhs`) is deliberately **not** used: the
 USB-C port is owned by the SAMD11, so a native USB-CDC console on the nRF54
 would enumerate nothing. Output therefore rides the debugger's UART bridge,
-which is why `prj.conf` keeps `zephyr,console = &uart20` and sets
-`CONFIG_LOG_PRINTK=n` (so `printk()` reaches the UART directly instead of the
-deferred logging pipeline — the reason the console previously looked silent).
+which is why `prj.conf` keeps `zephyr,console = &uart20` and disables
+Zephyr's unused `CONFIG_LOG` subsystem. All firmware diagnostics use
+`printk()`, which therefore reaches the UART directly rather than a logging
+pipeline.
 
 ### Updating the pinned Seeed platform
 
