@@ -17,11 +17,11 @@ Bluetooth `net_buf` pool that faults in the production image. The test removes
 PMIC, I2C, microphone, IMU, FFT, GATT, advertising, and application beacon
 code while retaining the exact Bluetooth initialisation path.
 
-## Current test: production Bluetooth buffer settings
+## Current test: production Bluetooth buffers, FPU, and stack
 
-This smoke test now includes **Test 1** of the isolation plan. It uses the
-production firmware's Bluetooth connection, L2CAP MTU, and ACL buffer-size
-settings:
+Test 1 passed on the target, so this smoke test now includes **Test 2** of the
+isolation plan. It retains the production Bluetooth connection, L2CAP MTU, and
+ACL buffer-size settings:
 
 ```ini
 CONFIG_BT_MAX_CONN=1
@@ -30,10 +30,19 @@ CONFIG_BT_BUF_ACL_RX_SIZE=251
 CONFIG_BT_BUF_ACL_TX_SIZE=251
 ```
 
+It also enables the production FPU, floating-point `cbprintf` support, and
+8 KiB main stack:
+
+```ini
+CONFIG_FPU=y
+CONFIG_CBPRINTF_FP_SUPPORT=y
+CONFIG_MAIN_STACK_SIZE=8192
+```
+
 No PMIC, I2C, audio, sensor, GATT, advertising, or beacon configuration has
-been added. Therefore, an MPU fault at `bt_enable()` now specifically points
-to this production Bluetooth buffer configuration (or the framework path it
-exercises), rather than those excluded subsystems.
+been added. Therefore, an MPU fault at `bt_enable()` now points to the Test 2
+runtime/RAM-layout configuration (or the framework path it exercises), rather
+than those excluded subsystems.
 
 ## Build, upload, and monitor
 
@@ -63,6 +72,6 @@ Bluetooth configuration rather than HiveInside's sensor/beacon code.
 
 | Result | Meaning |
 | --- | --- |
-| LED blinks and `PASS` prints | Basic board and Bluetooth initialisation, including the production ACL/L2CAP buffer sizes, work; continue with the next configuration batch. |
+| LED blinks and `PASS` prints | The production ACL/L2CAP buffer sizes, FPU support, float formatting, and 8 KiB main stack work; continue with the next configuration batch. |
 | LED blinks, then an MPU fault occurs after `calling bt_enable()` | The minimal image reproduces the Bluetooth startup defect; sensor/PMIC/beacon code is excluded. |
 | No boot message or no blink | The issue is below Bluetooth and this test is not yet informative. |
