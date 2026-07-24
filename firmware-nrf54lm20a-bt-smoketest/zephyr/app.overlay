@@ -1,0 +1,35 @@
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_controller;
+		zephyr,console = &uart20;
+	};
+};
+
+&bt_hci_controller {
+	status = "okay";
+};
+
+&uart20 {
+	status = "okay";
+	current-speed = <115200>;
+};
+
+/* Test 3: enable the on-board PDM microphone controller exactly as in the
+ * production overlay. Do not add the PMIC/LDO1 overlay yet: that belongs to
+ * the subsequent PMIC/sensor test batch. */
+&pdm20 {
+	status = "okay";
+};
+
+/* Test 5: match the production nPM1300 LDO1 configuration. This rail powers
+ * the on-board IMU and PDM microphone. */
+&pmic {
+	regulators {
+		LDO1 {
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-init-microvolt = <3300000>;
+			regulator-boot-on;
+		};
+	};
+};
