@@ -117,16 +117,17 @@ deprecated prototype's wiring and measurement JSON.
 
 ## Status
 
-🚧 **nRF54LM20A port complete in software, not yet hardware-validated.** The
-primary firmware now implements the full sensor suite (SHT40, IMU vibration
-FFT, PDM acoustic FFT, nPM1300 battery), the BLE measurement beacon HiveHub
-ingests, and the version GATT characteristic. Firmware-over-BLE is a
-placeholder (MCUboot/DFU integration remains), and the port has not yet been
-flashed to hardware — see the bring-up checklist in
-[`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md). The
-deprecated ESP32-C6 prototype retains its GATT + OTA implementation for
-reference. See [`docs/wiring.md`](docs/wiring.md) for the XIAO and SHT40
-connection reference.
+🚧 **nRF54LM20A firmware rebuilt from scratch; bring-up in progress.** The
+firmware is being rewritten as a small, robust base after the earlier
+BLE-beacon port could not be brought up on hardware. **Target 1 is done in
+software:** read all four sensors (SHT40 climate, LSM6DS3TR-C acceleration, PDM
+microphone level, nPM1300 battery) and print the readout to the USB serial
+console — no BLE and no FFT yet. The BLE measurement beacon HiveHub ingests,
+the FFT band analysis, and firmware-over-BLE are the next targets on top of it.
+See [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md) for the
+readout format and roadmap. The deprecated ESP32-C6 prototype retains its GATT +
+OTA implementation for reference. See [`docs/wiring.md`](docs/wiring.md) for the
+XIAO and SHT40 connection reference.
 
 ## License
 
