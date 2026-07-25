@@ -68,30 +68,17 @@ setup scan display a friendly name. The source also declares the manufacturer
 name as `HiveInside`; on the BLE wire, manufacturer-specific data contains only
 the numeric company ID (`0x02E5`), as required by the BLE AD format.
 
-### Identity record (board + firmware version)
+Active scans also receive a compact manufacturer-data identity record in the
+scan response. It does not alter the full 29-byte measurement advertisement or
+the USB console path.
 
-The scan response also carries a small **identity record** — a second
-manufacturer-data element tagged with magic `I` (`0x49`) instead of the
-measurement frame's `H`. Because this node is beacon-only and never accepts a
-GATT connection, this record is HiveHub's only way to learn the board and the
-running firmware version, so it can relay a **board-matched** OTA image and
-display the version without ever connecting.
-
-| Offset | Field | Encoding |
+| Offset | Field | Value |
 |---:|---|---|
-| `0..1` | company ID | `0x02E5`, little-endian |
-| `2` | magic | `0x49` (`'I'`) |
-| `3` | record version | `0x01` |
-| `4` | board id | `uint8` — `1` = esp32-c6, `2` = nrf54lm20a |
-| `5..7` | firmware version | `uint8` major, minor, patch |
-
-The board id matches the backend's `HIVEINSIDE_BOARDS` ordering, and the three
-version bytes are the numeric form of `HIVEINSIDE_FW_VERSION`. HiveHub receives
-this during its active scan (its default) and populates `ble_{slot}_board` and
-`ble_{slot}_firmware_version` from it directly, so it no longer attempts a
-(futile) GATT connection to this non-connectable node. Because the record lives
-in the scan response, the primary measurement packet stays byte-identical and
-existing HiveHubs are unaffected.
+| `0..1` | Company ID | `0x02E5`, little-endian |
+| `2` | Record magic | `0x49` (`I`) |
+| `3` | Record version | `1` |
+| `4` | Board ID | `2` (Seeed XIAO nRF54LM20A) |
+| `5..7` | Firmware version | major, minor, patch bytes |
 
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
@@ -223,7 +210,5 @@ firmware-nrf54lm20a/
    prototype) — done, printed to the console alongside the raw readings.
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
-4. **BLE identity record** (board + firmware version in the scan response, so
-   HiveHub can select a board-matched OTA image and show the version without a
-   GATT connection) — done.
+4. **BLE board/firmware identity** (compact scan-response record) — done.
 5. Firmware-over-BLE (MCUboot/DFU).

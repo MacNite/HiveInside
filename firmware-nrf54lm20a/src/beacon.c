@@ -5,16 +5,8 @@
  * acceleration and microphone peaks at bytes 26..28. Keeping the version-1
  * prefix unchanged preserves core-data compatibility, while the complete
  * measurement remains in the primary advertising packet for passive scans.
- * Active setup scans can additionally read the local name from the response.
- *
- * The scan response also carries a compact identity record (a second
- * manufacturer-data element, magic 'I') holding the board id and firmware
- * version. Because this node is beacon-only and never accepts a GATT
- * connection, that record is HiveHub's only way to learn the board and running
- * firmware — it lets HiveHub relay a board-matched OTA image and display the
- * version without ever trying to connect. It rides the scan response rather
- * than the primary packet so the measurement frame stays byte-identical for
- * existing HiveHubs.
+ * Active setup scans can additionally read the local name and the compact
+ * board/firmware identity record from the response.
  */
 #include "beacon.h"
 #include "hive_config.h"
@@ -34,23 +26,30 @@
 #define FRAME_MAGIC 0x48U /* 'H' */
 #define FRAME_VERSION 0x02U
 
-/* Identity record broadcast in the scan response. Distinct magic ('I') keeps it
- * unambiguous against the measurement frame ('H') even though both share the
- * company ID. Layout: company id (LE), magic, record version, board id, then the
- * three firmware version bytes. */
+/* Compact board/firmware record for active scanners.  It is deliberately
+ * constant and kept out of the console formatting path.  PR #44 changed both
+ * paths together, which made it impossible to isolate the reported console
+ * regression. */
 #define IDENTITY_MAGIC 0x49U /* 'I' */
 #define IDENTITY_VERSION 0x01U
+#define IDENTITY_SIZE 8U
 
-static const uint8_t identity_ad[] = {
-	(uint8_t)(HIVEINSIDE_COMPANY_ID & 0xFFU),
+static const uint8_t identity[IDENTITY_SIZE] = {
+	(uint8_t)(HIVEINSIDE_COMPANY_ID & 0xffU),
 	(uint8_t)(HIVEINSIDE_COMPANY_ID >> 8),
 	IDENTITY_MAGIC,
 	IDENTITY_VERSION,
-	(uint8_t)HIVEINSIDE_BOARD_ID,
-	(uint8_t)HIVEINSIDE_FW_VERSION_MAJOR,
-	(uint8_t)HIVEINSIDE_FW_VERSION_MINOR,
-	(uint8_t)HIVEINSIDE_FW_VERSION_PATCH,
+	HIVEINSIDE_BOARD_ID,
+	HIVEINSIDE_FW_VERSION_MAJOR,
+	HIVEINSIDE_FW_VERSION_MINOR,
+	HIVEINSIDE_FW_VERSION_PATCH,
 };
+
+/* A legacy scan response is limited to 31 bytes. Each AD structure adds a
+ * length and type byte, hence the two +2 terms below. */
+BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +
+	     (sizeof(identity) + 2U) <= 31U,
+	     "name and identity exceed legacy scan-response capacity");
 
 #define FLAG_SHT   (1U << 0)
 #define FLAG_ACCEL (1U << 1)
@@ -147,11 +146,9 @@ int beacon_init(void)
 		printk("[BLE] init failed (%d)\n", err);
 		return err;
 	}
-	printk("[BLE] ready; name=%s manufacturer=%s id=0x%04x board=%s(%u) fw=%s "
-	       "interval=%u ms\n",
+	printk("[BLE] ready; name=%s manufacturer=%s id=0x%04x interval=%u ms\n",
 	       HIVEINSIDE_DEVICE_NAME, HIVEINSIDE_MANUFACTURER_NAME,
-	       HIVEINSIDE_COMPANY_ID, HIVEINSIDE_BOARD, HIVEINSIDE_BOARD_ID,
-	       HIVEINSIDE_FW_VERSION, BLE_ADV_INTERVAL_MS);
+	       HIVEINSIDE_COMPANY_ID, BLE_ADV_INTERVAL_MS);
 	bluetooth_ready = true;
 	return 0;
 }
@@ -172,24 +169,19 @@ int beacon_publish(const struct measurement *m)
 	const struct bt_data ad[] = {
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 	};
-	/* Scan response: the friendly name for active setup scans plus the identity
-	 * record (board + firmware version) HiveHub reads to pick a board-matched OTA
-	 * image without connecting. Both fit alongside the name well inside the
-	 * 31-byte scan-response budget. */
 	const struct bt_data scan_response[] = {
 		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
 			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
-		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity_ad, sizeof(identity_ad)),
+		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
 	};
 	int err;
 
 	if (!advertising) {
 		/* Legacy scannable undirected advertising (ADV_SCAN_IND): the
 		 * measurement stays in the primary packet for HiveHub's passive
-		 * scan while the "HiveInside" name and the board/firmware identity
-		 * record ride in the scan response for active scans. Only the legacy
-		 * PDU allows both payloads at once, so never let extended advertising
-		 * be selected here. */
+		 * scan while the "HiveInside" name rides in the scan response for
+		 * active setup scans. Only the legacy PDU allows both payloads at
+		 * once, so never let extended advertising be selected here. */
 		struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
 			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
 			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
@@ -198,8 +190,7 @@ int beacon_publish(const struct measurement *m)
 		if (err != 0) {
 			/* The controller rejected the scannable beacon. Fall back
 			 * to the known-good non-connectable advert so HiveHub keeps
-			 * receiving measurements; the friendly name and the identity
-			 * record are best-effort and dropped in this degraded mode. */
+			 * receiving measurements; the friendly name is best-effort. */
 			printk("[BLE] scannable start failed (%d); "
 			       "falling back to non-connectable\n", err);
 			scannable = false;
