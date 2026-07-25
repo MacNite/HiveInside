@@ -14,7 +14,7 @@
  * form of the node name (`ldo1`), even though the DTS spells the node `LDO1`.
  * Zephyr lowercases node names when generating devicetree identifiers, so
  * passing `LDO1` here makes DT_NODE_EXISTS() false and silently compiles the
- * no-op stub below — see the app.overlay LDO1 node for the DTS-side spelling. */
+ * no-op stub below. */
 #if DT_HAS_COMPAT_STATUS_OKAY(nordic_npm1300_regulator) &&                     \
 	DT_NODE_EXISTS(                                                        \
 		DT_CHILD(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_npm1300_regulator), \
@@ -46,7 +46,7 @@ void power_init(void)
 			return;
 		}
 	}
-	/* The IMU and microphone share this rail.  Give both parts time to
+	/* The IMU and microphone share this rail. Give both parts time to
 	 * leave reset before their first I2C/PDM transaction. */
 	k_msleep(20);
 	printk("[PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)\n");
@@ -56,6 +56,7 @@ void power_init(void)
 
 void power_init(void)
 {
+	printk("[PWR] no nPM1300 LDO1 node — sensor rail unmanaged\n");
 }
 
 #endif

@@ -6,8 +6,8 @@
  * LSM6DS3TR-C IMU and nPM1300 PMIC. Rather than hard-coding board node
  * labels, this helper collects every enabled `nordic,nrf-twim` controller
  * from the devicetree, and the sensor modules probe their fixed addresses on
- * each — so the firmware keeps working whichever bus a sensor sits on, and
- * an external LIS3DH wired to the header (prototype-style) is found too.
+ * each — so the firmware keeps working whichever bus a sensor sits on, and an
+ * external LIS3DH wired to the header (prototype-style) is found too.
  */
 #pragma once
 

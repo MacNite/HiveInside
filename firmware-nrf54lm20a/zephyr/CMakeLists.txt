@@ -7,13 +7,10 @@ project(hiveinside_nrf54lm20a)
 
 target_sources(app PRIVATE
   ../src/main.c
-  ../src/fft.c
   ../src/hive_i2c.c
   ../src/power.c
   ../src/sht40.c
   ../src/accel.c
   ../src/mic.c
   ../src/battery.c
-  ../src/beacon.c
-  ../src/gatt_hive.c
 )

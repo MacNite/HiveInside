@@ -2,42 +2,28 @@
  * app.overlay — HiveInside adjustments to the XIAO nRF54LM20A board DT.
  *
  * Kept identical to zephyr/app.overlay (the copy PlatformIO's Seeed Zephyr
- * builder reads); edit both together.
+ * builder reads); edit both together — CI enforces that they match.
  *
- * Everything else the firmware needs is already enabled by the upstream
- * board definition: i2c22 (the XIAO header bus, external SHT40), i2c30
- * (internal bus with the LSM6DS3TR-C at 0x6a), and the led0/sw0 aliases.
- * The board definition already supplies the PMIC bit-banged I2C routing.
- * Do not override it here: the pinned Seeed board uses GPIO1.15 (SDA) and
- * GPIO1.16 (SCL), and an application-level override would make the nPM1300
- * inaccessible.
+ * Everything else the firmware needs is already enabled by the upstream board
+ * definition: i2c22 (the XIAO header bus, external SHT40), i2c30 (internal bus
+ * with the LSM6DS3TR-C at 0x6a) and the nPM1300 charger/regulator nodes. The
+ * board definition already supplies the PMIC bit-banged I2C routing — do not
+ * override it here.
  */
-
-/* Bluetooth HCI: the SoC devicetree ships the software link-layer
- * controller node disabled, and not every board definition revision enables
- * it or sets the chosen entry (upstream Zephyr's does, the pinned Seeed
- * platform's does not) — so do both here. Redundant where the board already
- * did it, required everywhere else. */
 / {
 	chosen {
-		zephyr,bt-hci = &bt_hci_controller;
-
-		/* Console routing (see prj.conf for the full explanation).
+		/* Console routing.
 		 *
 		 * uart20 (P1.11 TX / P1.10 RX) is wired to the on-board SAMD11
 		 * CMSIS-DAP debugger, which bridges it to a USB CDC ACM port
 		 * (/dev/ttyACM0) over the same USB-C cable used for flashing.
-		 * The board definition already chooses uart20; re-assert it
-		 * here so the application console does not silently move if a
-		 * future board-definition bump changes the default. The XIAO
-		 * header UART is uart21 on D6/D7 — deliberately NOT the console. */
+		 * The board definition already chooses uart20; re-assert it here
+		 * so the application console does not silently move if a future
+		 * board-definition bump changes the default. The XIAO header
+		 * UART is uart21 on D6/D7 — deliberately NOT the console. */
 		zephyr,console = &uart20;
 		zephyr,shell-uart = &uart20;
 	};
-};
-
-&bt_hci_controller {
-	status = "okay";
 };
 
 /* Belt-and-suspenders: the board definition already enables uart20 at

@@ -46,13 +46,14 @@ pio device monitor -p /dev/ttyACM0 -b 115200
 ```
 
 The startup banner
-(`[HiveInside] nrf54lm20a fw <version> | BLE beacon transport`) prints **once at
-boot**, so if the monitor is opened afterwards, press **RST** with it connected
-to see the banner and the first measurement cycle. The console is a plain polled
-UART, so the firmware never blocks on a missing terminal — it boots and keeps
-advertising over BLE regardless. (The nRF54's native `usbhs` is not wired to the
-port — the SAMD11 owns it — so the console must ride the debugger's UART bridge
-rather than a native USB-CDC device on the nRF54.)
+(`[HiveInside] nrf54lm20a fw <version> | sensor readout over USB`) prints **once
+at boot**, followed by a readout block every few seconds, so if the monitor is
+opened afterwards, press **RST** with it connected to see the banner and the
+first readout. The console is a plain polled UART, so the firmware never blocks
+on a missing terminal — it boots and keeps sampling regardless. (The nRF54's
+native `usbhs` is not wired to the port — the SAMD11 owns it — so the console
+must ride the debugger's UART bridge rather than a native USB-CDC device on the
+nRF54.)
 
 ### Optional: using a XIAO RP2040 as an external CMSIS-DAP probe
 
@@ -82,12 +83,13 @@ On Linux, add a udev rule so the probe is accessible without `sudo`
 (`SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"`), then reload rules
 and replug.
 
-The nRF54LM20A firmware is the full sensor-beacon application (SHT40, IMU,
-microphone, nPM1300 battery, and the BLE beacon transport). It has no
-MCUboot/DFU integration yet, so BLE OTA is not available on this target. See
+The nRF54LM20A firmware currently reads all four sensors (SHT40, IMU,
+microphone, nPM1300 battery) and prints the readout to this serial console; BLE
+transport, FFT analysis, and MCUboot/DFU are later targets not yet present on
+this firmware. See
 [`firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md) for the
-PlatformIO details, the serial-console setup, and the advanced `west`
-alternative.
+readout format, PlatformIO details, the serial-console setup, and the advanced
+`west` alternative.
 
 ### Advanced alternative: nRF Connect SDK / `west`
 

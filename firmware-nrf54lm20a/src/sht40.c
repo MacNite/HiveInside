@@ -1,8 +1,7 @@
 /* sht40.c — SHT40 climate read (raw I²C, no external driver).
  *
  * Command 0xE0 = "measure, lowest precision": the shortest conversion
- * (~1.6 ms) and the lowest per-cycle energy, matching the low-precision
- * setting the ESP32-C6 prototype used via the Adafruit library.
+ * (~1.6 ms) and the lowest per-cycle energy.
  */
 #include "sht40.h"
 
@@ -60,6 +59,7 @@ static bool sht40_measure(const struct device *bus, float *temp_c,
 	/* Datasheet conversion; RH clamped to the physical 0–100 % range. */
 	*temp_c = -45.0f + 175.0f * (float)t_raw / 65535.0f;
 	float rh = -6.0f + 125.0f * (float)h_raw / 65535.0f;
+
 	if (rh < 0.0f) {
 		rh = 0.0f;
 	}
@@ -105,8 +105,6 @@ void sht40_read(struct measurement *m)
 		return;
 	}
 	m->sht_ok = true;
-	printk("[SHT40] %.2f C  %.1f %%RH\n", (double)m->temp_c,
-	       (double)m->humidity_pct);
 }
 
 #else /* !ENABLE_SHT40 */

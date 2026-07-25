@@ -1,11 +1,9 @@
 /* battery.c — see battery.h.
  *
- * The ESP32-C6 prototype needed an external resistor divider on an ADC pin;
- * the XIAO nRF54LM20A carries an nPM1300 PMIC whose charger block measures
- * the cell directly, exposed by Zephyr as a sensor device
- * (compatible `nordic,npm1300-charger`, channel SENSOR_CHAN_GAUGE_VOLTAGE).
- * The same LiPo curve endpoints as the prototype turn volts into the rough
- * percentage the beacon carries.
+ * The XIAO nRF54LM20A carries an nPM1300 PMIC whose charger block measures the
+ * cell voltage directly, exposed by Zephyr as a sensor device (compatible
+ * `nordic,npm1300-charger`, channel SENSOR_CHAN_GAUGE_VOLTAGE). A simple LiPo
+ * curve turns volts into a rough percentage.
  */
 #include "battery.h"
 
@@ -50,8 +48,6 @@ void battery_read(struct measurement *m)
 	m->battery_v = v;
 	m->battery_pct = (uint8_t)(pct + 0.5f);
 	m->battery_ok = true;
-
-	printk("[BATT] %.3f V ~%u%%\n", (double)v, (unsigned)m->battery_pct);
 }
 
 #else /* !ENABLE_BATTERY or no nPM1300 charger node in the devicetree */
