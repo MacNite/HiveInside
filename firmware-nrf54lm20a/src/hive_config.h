@@ -29,8 +29,19 @@
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
 
-/* Company ID retained for wire compatibility with the existing HiveHub
- * decoder. The following magic/version bytes uniquely identify HiveInside. */
+/* Human-readable identity shown by active BLE scanners during setup. The
+ * manufacturer name is also kept here as explicit product metadata; BLE
+ * manufacturer-data packets carry a numeric company ID, not a name string. */
+#ifndef HIVEINSIDE_DEVICE_NAME
+#define HIVEINSIDE_DEVICE_NAME "HiveInside"
+#endif
+#ifndef HIVEINSIDE_MANUFACTURER_NAME
+#define HIVEINSIDE_MANUFACTURER_NAME "HiveInside"
+#endif
+
+/* Manufacturer/company ID at bytes 0..1 of the manufacturer-specific data.
+ * 0x02E5 is retained for wire compatibility with the existing HiveHub decoder;
+ * the following 'H' magic and format version identify this as HiveInside. */
 #ifndef HIVEINSIDE_COMPANY_ID
 #define HIVEINSIDE_COMPANY_ID 0x02E5
 #endif

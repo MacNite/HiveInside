@@ -43,6 +43,13 @@ then climate, battery, vibration FFT and acoustic FFT values. A sensor failure
 clears that group's validity flag, preventing the server from interpreting
 zero-filled bytes as a real measurement.
 
+The primary advertisement is exactly full, so the human-readable device name
+`HiveInside` is provided in its scan response. This preserves the complete
+manufacturer payload for HiveHub's passive scanner while letting an active
+setup scan display a friendly name. The source also declares the manufacturer
+name as `HiveInside`; on the BLE wire, manufacturer-specific data contains only
+the numeric company ID (`0x02E5`), as required by the BLE AD format.
+
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as

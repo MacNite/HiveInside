@@ -4,7 +4,8 @@
  * This is the exact 26-byte format consumed by HiveHub's
  * blesensor::parseHiveInside().  Keeping the complete measurement in the
  * primary advertising packet lets HiveHub use a passive scan; no connection,
- * scan response, pairing window, or wake-time rendezvous is required.
+ * pairing window, or wake-time rendezvous is required. Active setup scans can
+ * additionally read the "HiveInside" local name from the scan response.
  */
 #include "beacon.h"
 #include "hive_config.h"
@@ -109,7 +110,9 @@ int beacon_init(void)
 		printk("[BLE] init failed (%d)\n", err);
 		return err;
 	}
-	printk("[BLE] ready; beacon interval %u ms\n", BLE_ADV_INTERVAL_MS);
+	printk("[BLE] ready; name=%s manufacturer=%s id=0x%04x interval=%u ms\n",
+	       HIVEINSIDE_DEVICE_NAME, HIVEINSIDE_MANUFACTURER_NAME,
+	       HIVEINSIDE_COMPANY_ID, BLE_ADV_INTERVAL_MS);
 	bluetooth_ready = true;
 	return 0;
 }
@@ -128,18 +131,24 @@ int beacon_publish(const struct measurement *m)
 		BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_NO_BREDR),
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 	};
+	const struct bt_data scan_response[] = {
+		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
+			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+	};
 	int err;
 
 	if (!advertising) {
 		const struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-			BT_LE_ADV_OPT_USE_IDENTITY,
+			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
 			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
-		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), NULL, 0);
+		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
+				      ARRAY_SIZE(scan_response));
 		if (err == 0) {
 			advertising = true;
 		}
 	} else {
-		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
+		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), scan_response,
+					ARRAY_SIZE(scan_response));
 	}
 
 	if (err != 0) {
