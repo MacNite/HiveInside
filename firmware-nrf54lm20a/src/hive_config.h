@@ -22,11 +22,37 @@
 
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
+/* Firmware version as numeric components. These are the single source of truth:
+ * the human string below and the BLE identity record (scan response) are both
+ * derived from them, so the console banner and the over-the-air version can
+ * never drift apart. */
+#ifndef HIVEINSIDE_FW_VERSION_MAJOR
+#define HIVEINSIDE_FW_VERSION_MAJOR 0
+#endif
+#ifndef HIVEINSIDE_FW_VERSION_MINOR
+#define HIVEINSIDE_FW_VERSION_MINOR 4
+#endif
+#ifndef HIVEINSIDE_FW_VERSION_PATCH
+#define HIVEINSIDE_FW_VERSION_PATCH 0
+#endif
+
+#define HIVEINSIDE_STRINGIFY_(x) #x
+#define HIVEINSIDE_STRINGIFY(x) HIVEINSIDE_STRINGIFY_(x)
+
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.3.0"
+#define HIVEINSIDE_FW_VERSION                                                  \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_MAJOR) "."                   \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_MINOR) "."                   \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_PATCH)
 #endif
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
+#endif
+/* Numeric board/architecture identifier broadcast in the BLE identity record so
+ * HiveHub can select a board-matched OTA image without a GATT connection. Must
+ * match the server's HIVEINSIDE_BOARDS ordering (1 = esp32-c6, 2 = nrf54lm20a). */
+#ifndef HIVEINSIDE_BOARD_ID
+#define HIVEINSIDE_BOARD_ID 2
 #endif
 
 /* Human-readable identity shown by active BLE scanners during setup. The
