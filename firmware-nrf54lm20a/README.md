@@ -6,8 +6,9 @@ Zephyr**.
 Fresh rewrite that reads every sensor, prints the readings to the USB serial
 console, and runs the **same vibration and acoustic FFT band analysis as the
 ESP32-C6 prototype** (identical bands and units, so a value means the same thing
-across the ecosystem). There is no BLE yet — the BLE measurement beacon is a
-later target that builds on this base.
+across the ecosystem). Each cycle the reading is also broadcast as a **26-byte
+BLE manufacturer-data beacon** that HiveHub ingests with a passive scan and
+bridges to the backend — no connection, no pairing window, no wake-sync.
 
 ## What it reads
 
@@ -32,7 +33,60 @@ The FFT bands are the ecosystem-shared bands:
   `300–550 Hz`, stress `550–1500 Hz`, high `1500–3000 Hz`.
 
 Each group prints `n/a` when its sensor is missing or the read failed that
-cycle, so a partial board still gives a useful readout.
+cycle, so a partial board still gives a useful readout. The same per-group
+"present" flags travel in the beacon, so HiveHub reports an absent sensor as
+missing rather than as a bogus `0`.
+
+## BLE data transfer to HiveHub
+
+Every cycle the reading is encoded into a **26-byte manufacturer-data
+advertisement** and published with `bt_le_adv_update_data()`. HiveHub's passive
+scan (`ENABLE_BLE_SCAN`, on by default) matches the beacon by MAC and decodes it
+in `firmware/src/ble_sensor.cpp::parseHiveInside()` — **no HiveHub change is
+needed**; an existing HiveHub already understands this exact frame (company id
+`0x02E5` + magic `'H'`). The layout (temperature, humidity, battery, vibration
+RMS + swarm/fanning/activity bands, and the five acoustic dBFS bands) lives in
+[`src/beacon.c`](src/beacon.c) and must stay in step with HiveHub's decoder.
+
+**Pairing:** the firmware prints its BLE address at boot —
+
+```
+[BLE] beacon address F2:AB:… (random) — pair this MAC in HiveHub
+```
+
+Add that MAC as the hive's in-hive sensor in the HiveHub provisioning portal.
+The address is the SoC's stable static-random identity, so it survives reboots.
+
+### Radio sleep / power
+
+The advertiser is **non-connectable and runs continuously** at
+`BEACON_ADV_INTERVAL` (default ~1 s). This is deliberate: a beacon has no
+back-channel to learn *when* HiveHub's short (~6 s) passive scan lands, so it has
+to be on air at all times to be caught reliably. That costs almost nothing —
+each advertising event is well under 1 ms of radio time, so at a 1 s interval the
+radio is active **< 0.1 % of the time** (a few µA average); between events the
+controller re-emits the last frame on its own while the CPU is asleep. (The old
+ESP32-C6 prototype instead used a connectable GATT link with a HiveHub-driven
+*wake-sync*; a pure beacon needs none of that machinery.)
+
+Because the radio is essentially free, the real battery lever is
+**`MEASURE_INTERVAL_MS`** — the sensor + FFT cycle (accel capture at ~400 Hz,
+PDM microphone capture, two FFTs) is what draws real current. The 5 s default is
+a bench value so a monitor shows fresh numbers quickly; for a deployed node raise
+it to minutes (a hive's climate and vibration change slowly) and match it to how
+often HiveHub uploads — there is no benefit to measuring faster than HiveHub
+scans. The advertiser keeps broadcasting the last computed frame in between, so
+every HiveHub scan still finds a valid reading. Nudging `BEACON_ADV_INTERVAL`
+toward its ~2 s ceiling shaves a little more radio power if the battery is tight;
+keep a margin below HiveHub's scan window so a scan never falls entirely between
+two advertising events.
+
+> **Board / firmware discovery:** because the node is non-connectable, HiveHub
+> cannot read the optional board/version characteristic and will show the board
+> as unknown. That only gates board-matched OTA selection, which the nRF54 node
+> does not implement yet, so it is harmless today. When firmware-over-BLE lands
+> (roadmap step 4) a minimal *connectable* GATT version service can be added
+> alongside the beacon.
 
 Example output:
 
@@ -115,7 +169,8 @@ firmware-nrf54lm20a/
     ├── sht40.[ch]        SHT40 climate
     ├── accel.[ch]        LSM6DS3TR-C / LIS3DH vibration + FFT bands
     ├── mic.[ch]          PDM microphone level + FFT bands
-    └── battery.[ch]      nPM1300 fuel gauge
+    ├── battery.[ch]      nPM1300 fuel gauge
+    └── beacon.[ch]       26-byte BLE measurement beacon (HiveHub ingest)
 ```
 
 > **Config sync:** the root `prj.conf`/`app.overlay` (for `west`) and the
@@ -128,6 +183,7 @@ firmware-nrf54lm20a/
 1. **Sensor readout over USB** — done.
 2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
    prototype) — done, printed to the console alongside the raw readings.
-3. BLE measurement beacon (the 26-byte manufacturer-data advertisement HiveHub
-   ingests).
-4. Firmware-over-BLE (MCUboot/DFU).
+3. **BLE measurement beacon** (the 26-byte manufacturer-data advertisement
+   HiveHub ingests) — done ([`src/beacon.c`](src/beacon.c)).
+4. Firmware-over-BLE (MCUboot/DFU), and with it a minimal connectable GATT
+   version service for HiveHub board/firmware discovery.

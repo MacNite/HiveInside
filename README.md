@@ -55,13 +55,13 @@ value means the same thing across the ecosystem.
   running (a few µA); no deep-sleep rendezvous machinery required, unlike the
   ESP32-C6 prototype's HiveScale-scheduled wake sync.
 - **Firmware-over-BLE (OTA)** — implemented on the deprecated ESP32-C6
-  prototype. The nRF54LM20A firmware exposes the OTA GATT characteristics as
-  a placeholder (transfers are rejected up front); MCUboot/DFU integration is
-  still to come.
+  prototype. The nRF54LM20A node is broadcaster-only for now, so OTA (MCUboot/
+  DFU) and the small connectable GATT service that carries it are still to come.
 - **Connectable GATT server** — provided by the deprecated ESP32-C6 prototype,
   with standard Battery + Environmental-Sensing services plus a custom JSON
-  characteristic carrying the full FFT dataset. The nRF54 node keeps a
-  minimal GATT service for firmware-version/board discovery.
+  characteristic carrying the full FFT dataset. The nRF54 node ships as a pure
+  non-connectable beacon today; a minimal connectable GATT service for
+  firmware-version/board discovery will arrive with its firmware-over-BLE work.
 - **PlatformIO with Zephyr** — the primary nRF54LM20A workflow keeps standard
   Zephyr source and configuration files while PlatformIO drives builds and uploads.
 
@@ -118,16 +118,18 @@ deprecated prototype's wiring and measurement JSON.
 ## Status
 
 🚧 **nRF54LM20A firmware rebuilt from scratch; bring-up in progress.** The
-firmware is being rewritten as a small, robust base after the earlier
-BLE-beacon port could not be brought up on hardware. **Target 1 is done in
-software:** read all four sensors (SHT40 climate, LSM6DS3TR-C acceleration, PDM
-microphone level, nPM1300 battery) and print the readout to the USB serial
-console — no BLE and no FFT yet. The BLE measurement beacon HiveHub ingests,
-the FFT band analysis, and firmware-over-BLE are the next targets on top of it.
-See [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md) for the
-readout format and roadmap. The deprecated ESP32-C6 prototype retains its GATT +
-OTA implementation for reference. See [`docs/wiring.md`](docs/wiring.md) for the
-XIAO and SHT40 connection reference.
+firmware was rewritten as a small, robust base after the earlier BLE-beacon port
+could not be brought up on hardware. It now reads all four sensors (SHT40
+climate, LSM6DS3TR-C acceleration, PDM microphone level, nPM1300 battery), runs
+the ecosystem-shared vibration and acoustic **FFT band analysis**, prints the
+readout to the USB serial console, **and broadcasts it as the 26-byte BLE
+manufacturer-data beacon HiveHub ingests** (continuous, non-connectable,
+low-power advertising — see the firmware README's *Radio sleep / power* notes).
+Firmware-over-BLE (MCUboot/DFU) is the remaining target. See
+[`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md) for the beacon
+format, pairing, and roadmap. The deprecated ESP32-C6 prototype retains its GATT
++ OTA implementation for reference. See [`docs/wiring.md`](docs/wiring.md) for
+the XIAO and SHT40 connection reference.
 
 ## License
 

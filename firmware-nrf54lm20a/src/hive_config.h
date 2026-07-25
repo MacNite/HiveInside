@@ -130,3 +130,51 @@
 #ifndef VBAT_EMPTY_V
 #define VBAT_EMPTY_V 3.30f
 #endif
+
+/* ── BLE measurement beacon ─────────────────────────────────────────────────
+ *
+ * The node broadcasts the full measurement as a 26-byte manufacturer-data
+ * advertisement that HiveHub ingests with a passive scan (no connection, no
+ * pairing window, no wake-sync). The byte layout below is decoded verbatim by
+ * HiveHub firmware/src/ble_sensor.cpp::parseHiveInside() — keep the two in sync.
+ *
+ * Radio-sleep model: the advertiser runs CONTINUOUSLY at BEACON_ADV_INTERVAL,
+ * because a beacon has no back-channel to learn when HiveHub's short (~6 s) scan
+ * lands, so it must always be on air to be caught. That is cheap — each
+ * advertising event is well under 1 ms of radio time, so at a ~1 s interval the
+ * radio is active < 0.1 % of the time (a few µA average). The battery cost is
+ * dominated instead by the SENSOR + FFT cycle (accel capture + PDM + FFTs), so
+ * the power lever is MEASURE_INTERVAL_MS, not the advertising interval: the CPU
+ * and sensor rail sleep between cycles while the controller keeps re-emitting
+ * the last encoded frame on its own. See README "Radio sleep / power".
+ */
+
+/* 16-bit BLE company identifier placed at the head of the manufacturer data.
+ * Must equal HiveHub's HIVEINSIDE_COMPANY_ID (default Espressif 0x02E5) so an
+ * existing HiveHub decodes this node unchanged; the magic byte then tells the
+ * HiveInside frame apart from a HolyIot beacon that shares a company id. Flip
+ * both together (here and in HiveHub config.h) for a distinct Nordic identity. */
+#ifndef BEACON_COMPANY_ID
+#define BEACON_COMPANY_ID 0x02E5
+#endif
+#define BEACON_MAGIC   0x48 /* 'H' — frame discriminator, HiveHub HI_MAGIC */
+#define BEACON_VERSION 0x01 /* frame version, HiveHub HI_OFF_VERSION */
+
+/* BLE advertising interval window (ms). Kept well under HiveHub's passive-scan
+ * window (HOLYIOT_BLE_SCAN_SECONDS, default 6 s) with margin for the 3-channel
+ * spread so a scan never falls entirely between two advertising events. Raise
+ * toward ~2000 ms to shave a little more radio power if the battery is tight;
+ * keep a safe margin below the scan window. */
+#ifndef BEACON_ADV_INTERVAL_MIN_MS
+#define BEACON_ADV_INTERVAL_MIN_MS 1000
+#endif
+#ifndef BEACON_ADV_INTERVAL_MAX_MS
+#define BEACON_ADV_INTERVAL_MAX_MS 1200
+#endif
+
+/* Advertised name, carried in the scan response for friendly portal pairing
+ * (HiveHub still pairs by MAC). Overridden by CONFIG_BT_DEVICE_NAME at the BLE
+ * layer; kept here so both stay obvious in one place. */
+#ifndef BEACON_NAME
+#define BEACON_NAME "HiveInside"
+#endif
