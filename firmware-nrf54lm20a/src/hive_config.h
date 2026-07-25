@@ -23,11 +23,20 @@
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.3.0"
+#define HIVEINSIDE_FW_VERSION "0.4.0"
 #endif
+/* Keep the advertised representation numeric and fixed-width.  These values
+ * intentionally do not build HIVEINSIDE_FW_VERSION with preprocessor string
+ * concatenation: the console continues to use the same plain-string-literal
+ * mechanism as the last known-good firmware. */
+#define HIVEINSIDE_FW_VERSION_MAJOR 0U
+#define HIVEINSIDE_FW_VERSION_MINOR 4U
+#define HIVEINSIDE_FW_VERSION_PATCH 0U
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
+/* Stable wire identifier for the Seeed XIAO nRF54LM20A board. */
+#define HIVEINSIDE_BOARD_ID 2U
 
 /* Human-readable identity shown by active BLE scanners during setup. The
  * manufacturer name is also kept here as explicit product metadata; BLE

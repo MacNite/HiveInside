@@ -68,6 +68,18 @@ setup scan display a friendly name. The source also declares the manufacturer
 name as `HiveInside`; on the BLE wire, manufacturer-specific data contains only
 the numeric company ID (`0x02E5`), as required by the BLE AD format.
 
+Active scans also receive a compact manufacturer-data identity record in the
+scan response. It does not alter the full 29-byte measurement advertisement or
+the USB console path.
+
+| Offset | Field | Value |
+|---:|---|---|
+| `0..1` | Company ID | `0x02E5`, little-endian |
+| `2` | Record magic | `0x49` (`I`) |
+| `3` | Record version | `1` |
+| `4` | Board ID | `2` (Seeed XIAO nRF54LM20A) |
+| `5..7` | Firmware version | major, minor, patch bytes |
+
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
@@ -99,7 +111,7 @@ type.
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.3.0 | sensor readout over USB
+[HiveInside] nrf54lm20a fw 0.4.0 | sensor readout over USB
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [SHT40] present on i2c@...
 [ACCEL] LSM6-class IMU at 0x6A on i2c@...
@@ -198,4 +210,5 @@ firmware-nrf54lm20a/
    prototype) — done, printed to the console alongside the raw readings.
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
-4. Firmware-over-BLE (MCUboot/DFU).
+4. **BLE board/firmware identity** (compact scan-response record) — done.
+5. Firmware-over-BLE (MCUboot/DFU).

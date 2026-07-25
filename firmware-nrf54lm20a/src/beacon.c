@@ -5,7 +5,8 @@
  * acceleration and microphone peaks at bytes 26..28. Keeping the version-1
  * prefix unchanged preserves core-data compatibility, while the complete
  * measurement remains in the primary advertising packet for passive scans.
- * Active setup scans can additionally read the local name from the response.
+ * Active setup scans can additionally read the local name and the compact
+ * board/firmware identity record from the response.
  */
 #include "beacon.h"
 #include "hive_config.h"
@@ -24,6 +25,31 @@
 #define FRAME_SIZE 29U
 #define FRAME_MAGIC 0x48U /* 'H' */
 #define FRAME_VERSION 0x02U
+
+/* Compact board/firmware record for active scanners.  It is deliberately
+ * constant and kept out of the console formatting path.  PR #44 changed both
+ * paths together, which made it impossible to isolate the reported console
+ * regression. */
+#define IDENTITY_MAGIC 0x49U /* 'I' */
+#define IDENTITY_VERSION 0x01U
+#define IDENTITY_SIZE 8U
+
+static const uint8_t identity[IDENTITY_SIZE] = {
+	(uint8_t)(HIVEINSIDE_COMPANY_ID & 0xffU),
+	(uint8_t)(HIVEINSIDE_COMPANY_ID >> 8),
+	IDENTITY_MAGIC,
+	IDENTITY_VERSION,
+	HIVEINSIDE_BOARD_ID,
+	HIVEINSIDE_FW_VERSION_MAJOR,
+	HIVEINSIDE_FW_VERSION_MINOR,
+	HIVEINSIDE_FW_VERSION_PATCH,
+};
+
+/* A legacy scan response is limited to 31 bytes. Each AD structure adds a
+ * length and type byte, hence the two +2 terms below. */
+BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +
+	     (sizeof(identity) + 2U) <= 31U,
+	     "name and identity exceed legacy scan-response capacity");
 
 #define FLAG_SHT   (1U << 0)
 #define FLAG_ACCEL (1U << 1)
@@ -146,6 +172,7 @@ int beacon_publish(const struct measurement *m)
 	const struct bt_data scan_response[] = {
 		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
 			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
 	};
 	int err;
 
