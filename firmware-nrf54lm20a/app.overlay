@@ -48,6 +48,18 @@
 	status = "okay";
 };
 
+/* Free the peripheral slot the PDM shares with PWM.
+ *
+ * On the nRF54L the "20" peripheral group multiplexes pdm20 and pwm20 onto the
+ * same underlying block/pins, so only one can run at a time. The board enables
+ * pwm20 by default, which leaves pdm20 able to be configured and "started" yet
+ * never actually sampling — dmic_read() then times out with zero DMA blocks
+ * ("read stopped after 0 frames"). Disabling pwm20 releases the slot to the
+ * microphone. (Per Seeed's working on-board-mic overlay.) */
+&pwm20 {
+	status = "disabled";
+};
+
 /* On-board PDM microphone (MSM261DGT006). The board definition provides
  * pinctrl (P1.13 CLK / P1.14 DIN) and clock-source but leaves the controller
  * disabled. */
