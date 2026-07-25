@@ -14,4 +14,5 @@ target_sources(app PRIVATE
   src/accel.c
   src/mic.c
   src/battery.c
+  src/beacon.c
 )

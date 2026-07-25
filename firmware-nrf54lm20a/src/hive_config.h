@@ -5,8 +5,8 @@
  * This firmware reads every sensor once per cycle and prints the result to the
  * USB serial console. Alongside the plain readings it runs the same vibration
  * and acoustic FFT band analysis as the ESP32-C6 prototype, so a band value
- * means the same thing across the ecosystem. There is no BLE yet — the BLE
- * measurement beacon is a later target that builds on top of this.
+ * means the same thing across the ecosystem. Each completed measurement is
+ * also broadcast in the manufacturer-data format consumed by HiveHub.
  *
  * Hardware (see docs/wiring.md):
  *
@@ -28,6 +28,21 @@
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
+
+/* Company ID retained for wire compatibility with the existing HiveHub
+ * decoder. The following magic/version bytes uniquely identify HiveInside. */
+#ifndef HIVEINSIDE_COMPANY_ID
+#define HIVEINSIDE_COMPANY_ID 0x02E5
+#endif
+
+/* A one-second non-connectable advertising interval is short enough to be
+ * heard reliably in HiveHub's scan window while allowing the controller to
+ * sleep between three brief advertising-channel transmissions. BLE intervals
+ * use 0.625 ms units. */
+#ifndef BLE_ADV_INTERVAL_MS
+#define BLE_ADV_INTERVAL_MS 1000
+#endif
+#define BLE_ADV_INTERVAL_UNITS ((BLE_ADV_INTERVAL_MS * 8U) / 5U)
 
 /* ── Measurement cadence ───────────────────────────────────────────────── */
 

@@ -3,11 +3,11 @@
 Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
 Zephyr**.
 
-Fresh rewrite that reads every sensor, prints the readings to the USB serial
-console, and runs the **same vibration and acoustic FFT band analysis as the
-ESP32-C6 prototype** (identical bands and units, so a value means the same thing
-across the ecosystem). There is no BLE yet — the BLE measurement beacon is a
-later target that builds on this base.
+The firmware reads every sensor, prints the readings to the USB serial console,
+runs the **same vibration and acoustic FFT band analysis as the ESP32-C6
+prototype**, and broadcasts each reduced result as a BLE beacon. The 26-byte
+manufacturer-data frame is directly compatible with the current HiveHub passive
+scanner; no BLE connection or wake synchronisation is needed.
 
 ## What it reads
 
@@ -33,6 +33,42 @@ The FFT bands are the ecosystem-shared bands:
 
 Each group prints `n/a` when its sensor is missing or the read failed that
 cycle, so a partial board still gives a useful readout.
+
+## BLE data transfer
+
+The node sends one non-connectable legacy advertisement containing flags plus a
+26-byte manufacturer-data value. Its wire format matches HiveHub's
+`parseHiveInside()` exactly: company ID `0x02E5`, magic `H`, format version 1,
+then climate, battery, vibration FFT and acoustic FFT values. A sensor failure
+clears that group's validity flag, preventing the server from interpreting
+zero-filled bytes as a real measurement.
+
+The Bluetooth controller repeats the latest measurement every second. HiveHub
+therefore receives it during its existing shared passive scan and forwards it
+with the next server upload. Pair the node by its stable identity address as
+**HiveInside (nRF54LM20A) — beacon**; do not select the legacy ESP32-C6 GATT
+type.
+
+### Radio sleep and battery life
+
+- Keep advertising continuous. The nRF controller autonomously sleeps between
+  the three short advertising-channel transmissions, and the application CPU
+  remains asleep. Stopping BLE between measurements would save a little radio
+  energy but makes a short, unsynchronised HiveHub scan likely to miss the node.
+- The default one-second interval is the reliability/power compromise expected
+  by HiveHub. `BLE_ADV_INTERVAL_MS` can be overridden at build time; increase it
+  only after making sure the HiveHub scan window is several times longer than
+  the chosen interval. Avoid intervals longer than the scan window.
+- Sensor acquisition—especially the multi-second accelerometer capture and PDM
+  microphone—is expected to dominate energy use, not beacon advertising. For a
+  deployed battery node, increase `MEASURE_INTERVAL_MS` from the five-second
+  bench default to the required reporting cadence (for example five minutes).
+  The last valid result continues advertising while the CPU sleeps.
+- Do not use system-off/deep sleep for the normal cycle: it stops the BLE
+  controller and defeats asynchronous passive scanning. Zephyr `k_msleep()`
+  already lets the kernel and radio enter their supported idle states. Reserve
+  system-off for storage/shipping mode, where discoverability is intentionally
+  disabled.
 
 Example output:
 
@@ -106,7 +142,8 @@ firmware-nrf54lm20a/
 │   ├── prj.conf          identical copy of the root prj.conf
 │   └── app.overlay       identical copy of the root app.overlay
 └── src/
-    ├── main.c            readout loop + console print
+    ├── main.c            sensor loop + console print + beacon publish
+    ├── beacon.[ch]       HiveHub-compatible manufacturer-data advertising
     ├── hive_config.h     addresses, timing, bands, per-sensor settings
     ├── measurement.h     one sensor snapshot, shared by every module
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
@@ -128,6 +165,6 @@ firmware-nrf54lm20a/
 1. **Sensor readout over USB** — done.
 2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
    prototype) — done, printed to the console alongside the raw readings.
-3. BLE measurement beacon (the 26-byte manufacturer-data advertisement HiveHub
-   ingests).
+3. **BLE measurement beacon** (the 26-byte manufacturer-data advertisement
+   HiveHub ingests) — done.
 4. Firmware-over-BLE (MCUboot/DFU).
