@@ -119,7 +119,9 @@ deprecated prototype's wiring and measurement JSON.
 firmware reads all four sensors (SHT40 climate, LSM6DS3TR-C acceleration, PDM
 microphone level, nPM1300 battery), performs the vibration/acoustic FFTs, prints
 the readout, and broadcasts the current HiveHub-compatible BLE measurement
-beacon. Firmware-over-BLE remains the next transport target.
+beacon. Its scan response also advertises a board + firmware-version identity
+record, so HiveHub can pick a board-matched OTA image and show the version
+without connecting. Firmware-over-BLE remains the next transport target.
 See [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md) for the
 readout format and roadmap. The deprecated ESP32-C6 prototype retains its GATT +
 OTA implementation for reference. See [`docs/wiring.md`](docs/wiring.md) for the
