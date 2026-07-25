@@ -11,8 +11,9 @@
  * adapter. See docs/flashing.md. The console is a plain polled UART, so the
  * firmware boots and keeps sampling whether or not a terminal is attached.
  *
- * No BLE, no FFT: this is the minimal sensor readout that later transport and
- * analysis targets build on.
+ * Alongside the plain readings it runs the same vibration and acoustic FFT band
+ * analysis as the ESP32-C6 prototype and prints those bands too. There is no
+ * BLE yet — the BLE measurement beacon is a later target that builds on this.
  */
 #include "accel.h"
 #include "battery.h"
@@ -40,6 +41,14 @@ static void print_readout(const struct measurement *m)
 		printk("  accel   : x=%.1f y=%.1f z=%.1f mg  |a|=%.1f mg\n",
 		       (double)m->accel_x_mg, (double)m->accel_y_mg,
 		       (double)m->accel_z_mg, (double)m->accel_mag_mg);
+		printk("  accel AC: rms=%.1f peak=%.1f mg  (%u@%uHz)\n",
+		       (double)m->accel_rms_mg, (double)m->accel_peak_mg,
+		       (unsigned)m->accel_sample_count,
+		       (unsigned)m->accel_sample_rate_hz);
+		printk("  vib FFT : swarm=%.2f fan=%.2f act=%.2f mg\n",
+		       (double)m->accel_band_swarm_mg,
+		       (double)m->accel_band_fanning_mg,
+		       (double)m->accel_band_activity_mg);
 	} else {
 		printk("  accel   : n/a\n");
 	}
@@ -48,6 +57,12 @@ static void print_readout(const struct measurement *m)
 		printk("  sound   : rms=%.1f dBFS  peak=%.1f dBFS  (%u frames)\n",
 		       (double)m->mic_rms_dbfs, (double)m->mic_peak_dbfs,
 		       (unsigned)m->mic_frames);
+		printk("  ac FFT  : sub=%.1f hum=%.1f pipe=%.1f stress=%.1f hi=%.1f dBFS\n",
+		       (double)m->mic_band_sub_bass_dbfs,
+		       (double)m->mic_band_hum_dbfs,
+		       (double)m->mic_band_piping_dbfs,
+		       (double)m->mic_band_stress_dbfs,
+		       (double)m->mic_band_high_dbfs);
 	} else {
 		printk("  sound   : n/a\n");
 	}

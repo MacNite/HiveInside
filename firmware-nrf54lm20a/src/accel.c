@@ -1,15 +1,19 @@
 /* accel.c — see accel.h.
  *
  * Raw-register I²C access, so the readout does not depend on which Zephyr
- * driver the board devicetree happens to bind to the on-board IMU. The chip
- * is identified by WHO_AM_I, so either the Sense module's LSM6DS3TR-C or a
- * prototype LIS3DH breakout works unchanged.
+ * driver the board devicetree happens to bind to the on-board IMU. The chip is
+ * identified by WHO_AM_I, so either the Sense module's LSM6DS3TR-C or a
+ * prototype LIS3DH breakout works unchanged. Both are sampled at ~400 Hz into
+ * the same magnitude/FFT pipeline the ESP32-C6 prototype used, so the band
+ * values mean the same thing across the ecosystem.
  *
- * Target 1 only needs a single X/Y/Z sample per cycle; the sensor is powered
- * down (ODR = 0) between cycles.
+ * The sensor is powered down between cycles (ODR = 0) — on the Sense module the
+ * IMU rail (nPM1300 LDO1) stays up for the mic anyway, so power-down current is
+ * the floor either way.
  */
 #include "accel.h"
 
+#include "fft.h"
 #include "hive_config.h"
 #include "hive_i2c.h"
 
@@ -34,6 +38,7 @@ enum accel_chip {
 #define LIS_REG_OUT_X_L  0x28
 #define LIS_AUTO_INC     0x80 /* multi-byte read bit */
 #define LIS_WHO_AM_I_VAL 0x33
+#define LIS_ODR_HZ       400
 #define LIS_MG_PER_DIGIT 1.0f /* ±2 g, 12-bit high-resolution */
 
 /* ── LSM6DS3TR-C register map (subset; shared across the LSM6 family) ── */
@@ -41,13 +46,18 @@ enum accel_chip {
 #define LSM6_REG_CTRL1_XL 0x10 /* accel ODR + full scale */
 #define LSM6_REG_STATUS   0x1E /* bit0 XLDA = accel data ready */
 #define LSM6_REG_OUTX_L   0x28 /* auto-increments (IF_INC defaults on) */
-#define LSM6_CTRL1_104_2G 0x40 /* ODR_XL = 104 Hz, FS = ±2 g */
+#define LSM6_ODR_HZ       416
+#define LSM6_CTRL1_416_2G 0x60 /* ODR_XL = 416 Hz, FS = ±2 g */
 #define LSM6_MG_PER_LSB   0.061f /* ±2 g sensitivity */
 
 static const struct device *acc_bus;
 static uint8_t acc_addr;
 static enum accel_chip acc_chip;
 static bool probed;
+
+/* FFT scratch — static so a failed cycle can never leak heap. */
+static float fft_re[ACCEL_SAMPLE_COUNT];
+static float fft_im[ACCEL_SAMPLE_COUNT];
 
 static int rd_regs(uint8_t reg, uint8_t *buf, size_t len)
 {
@@ -116,27 +126,36 @@ static void power_down(void)
 	}
 }
 
-/* Configure the accelerometer for a reading; false on I²C failure. */
-static bool configure(void)
+/* Configure for the capture; returns the actual sample rate (0 on failure). */
+static uint16_t configure(void)
 {
 	if (acc_chip == CHIP_LIS3DH) {
-		/* CTRL1: ODR 100 Hz | XYZ enable. CTRL4: BDU | ±2 g | HR. */
-		return wr_reg(LIS_REG_CTRL1, 0x57) == 0 &&
-		       wr_reg(LIS_REG_CTRL4, 0x88) == 0;
+		/* CTRL1: ODR 400 Hz | XYZ enable. CTRL4: BDU | ±2 g | HR. */
+		if (wr_reg(LIS_REG_CTRL1, 0x77) != 0 ||
+		    wr_reg(LIS_REG_CTRL4, 0x88) != 0) {
+			return 0;
+		}
+		return LIS_ODR_HZ;
 	}
 	if (acc_chip == CHIP_LSM6) {
-		return wr_reg(LSM6_REG_CTRL1_XL, LSM6_CTRL1_104_2G) == 0;
+		if (wr_reg(LSM6_REG_CTRL1_XL, LSM6_CTRL1_416_2G) != 0) {
+			return 0;
+		}
+		return LSM6_ODR_HZ;
 	}
-	return false;
+	return 0;
 }
 
-/* Poll data-ready (bounded), then read one X/Y/Z sample in milli-g. */
-static bool sample_mg(float *x_mg, float *y_mg, float *z_mg)
+/* Poll data-ready then read one X/Y/Z sample in milli-g. Bounded wait so a
+ * wedged bus cannot stall the cycle. */
+static bool sample_xyz(uint32_t period_us, float *x_mg, float *y_mg,
+		       float *z_mg)
 {
 	uint8_t status_reg = (acc_chip == CHIP_LIS3DH) ? LIS_REG_STATUS
 						       : LSM6_REG_STATUS;
 	uint8_t ready_mask = (acc_chip == CHIP_LIS3DH) ? 0x08 : 0x01;
-	int64_t deadline = k_uptime_get() + 100; /* ms */
+	int64_t deadline = k_uptime_ticks() +
+			   k_us_to_ticks_ceil64(period_us * 4 + 2000);
 	uint8_t status = 0;
 
 	while (true) {
@@ -144,10 +163,10 @@ static bool sample_mg(float *x_mg, float *y_mg, float *z_mg)
 		    (status & ready_mask)) {
 			break;
 		}
-		if (k_uptime_get() > deadline) {
+		if (k_uptime_ticks() > deadline) {
 			break;
 		}
-		k_msleep(1);
+		k_usleep(200);
 	}
 
 	uint8_t raw[6];
@@ -188,28 +207,94 @@ void accel_read(struct measurement *m)
 		return;
 	}
 
-	if (!configure()) {
+	uint16_t odr_hz = configure();
+
+	if (odr_hz == 0) {
 		printk("[ACCEL] config write failed\n");
 		power_down();
 		return;
 	}
+	m->accel_sample_rate_hz = odr_hz;
 
-	/* Let the just-enabled ODR and filter chain settle. */
+	/* Let the just-(re)enabled ODR and filter chain settle. */
 	k_msleep(20);
 
-	bool ok = sample_mg(&m->accel_x_mg, &m->accel_y_mg, &m->accel_z_mg);
+	const uint32_t period_us = 1000000UL / odr_hz;
+	double sum_x = 0.0, sum_y = 0.0, sum_z = 0.0;
+	size_t n = 0;
 
+	for (; n < ACCEL_SAMPLE_COUNT; n++) {
+		float x, y, z;
+
+		if (!sample_xyz(period_us, &x, &y, &z)) {
+			break;
+		}
+		sum_x += x;
+		sum_y += y;
+		sum_z += z;
+		fft_re[n] = sqrtf(x * x + y * y + z * z); /* |a| for the FFT */
+	}
 	power_down();
 
-	if (!ok) {
-		printk("[ACCEL] sample read failed\n");
-		acc_chip = CHIP_NONE; /* re-probe next cycle */
+	if (n < 64) {
+		printk("[ACCEL] only %u samples; skipping\n", (unsigned)n);
 		return;
 	}
 
+	/* Mean per-axis acceleration ≈ the static gravity/orientation vector. */
+	m->accel_x_mg = (float)(sum_x / (double)n);
+	m->accel_y_mg = (float)(sum_y / (double)n);
+	m->accel_z_mg = (float)(sum_z / (double)n);
 	m->accel_mag_mg = sqrtf(m->accel_x_mg * m->accel_x_mg +
 				m->accel_y_mg * m->accel_y_mg +
 				m->accel_z_mg * m->accel_z_mg);
+
+	/* Remove DC (gravity + mounting bias) from |a| so the bands reflect AC
+	 * vibration only. */
+	float sum = 0.0f;
+
+	for (size_t i = 0; i < n; i++) {
+		sum += fft_re[i];
+	}
+	float mean = sum / (float)n;
+	float sum_sq = 0.0f, peak_dev = 0.0f;
+
+	for (size_t i = 0; i < n; i++) {
+		float ac = fft_re[i] - mean;
+
+		sum_sq += ac * ac;
+		float dev = fabsf(ac);
+
+		if (dev > peak_dev) {
+			peak_dev = dev;
+		}
+		fft_re[i] = ac;
+		fft_im[i] = 0.0f;
+	}
+	for (size_t i = n; i < ACCEL_SAMPLE_COUNT; i++) {
+		fft_re[i] = 0.0f;
+		fft_im[i] = 0.0f;
+	}
+
+	m->accel_sample_count = (uint16_t)n;
+	m->accel_rms_mg = sqrtf(sum_sq / (float)n);
+	m->accel_peak_mg = peak_dev;
+
+	hive_fft_hann(fft_re, ACCEL_SAMPLE_COUNT);
+	hive_fft_magnitude(fft_re, fft_im, ACCEL_SAMPLE_COUNT);
+
+	const float norm = ((float)ACCEL_SAMPLE_COUNT / 2.0f) * 0.5f;
+	const float fs = (float)odr_hz;
+
+	m->accel_band_swarm_mg = hive_fft_band_amplitude(
+		fft_re, ACCEL_SAMPLE_COUNT, fs, ACC_BAND_SWARM_LO,
+		ACC_BAND_SWARM_HI, norm, true);
+	m->accel_band_fanning_mg = hive_fft_band_amplitude(
+		fft_re, ACCEL_SAMPLE_COUNT, fs, ACC_BAND_FANNING_LO,
+		ACC_BAND_FANNING_HI, norm, true);
+	m->accel_band_activity_mg = hive_fft_band_amplitude(
+		fft_re, ACCEL_SAMPLE_COUNT, fs, ACC_BAND_ACTIVITY_LO,
+		ACC_BAND_ACTIVITY_HI, norm, true);
 	m->accel_ok = true;
 }
 
