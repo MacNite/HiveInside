@@ -6,10 +6,10 @@
  *
  * Everything else the firmware needs is already enabled by the upstream board
  * definition: i2c22 (the XIAO header bus, external SHT40), i2c30 (internal bus
- * with the LSM6DS3TR-C at 0x6a) and the nPM1300 charger/regulator nodes. The
- * board definition already supplies the PMIC bit-banged I2C routing — do not
- * override it here.
+ * with the LSM6DS3TR-C at 0x6a) and the nPM1300 charger/regulator nodes.
  */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
 / {
 	chosen {
 		/* Console routing.
@@ -33,17 +33,35 @@
 	current-speed = <115200>;
 };
 
+/* nPM1300 PMIC bit-banged I2C — pin correction.
+ *
+ * The board DTS routes the PMIC's bit-banged I2C to P1.15 (SDA) / P1.16 (SCL),
+ * but the actual XIAO nRF54LM20A Sense hardware wires the nPM1300 to
+ * P1.18 (SDA) / P1.17 (SCL). Without this override the firmware talks to the
+ * wrong pins, the nPM1300 is unreachable, and LDO1 stays at its 1.8 V default —
+ * enough for the LSM6DS3TR-C IMU (on the separate i2c30 bus) but too low for
+ * the MSM261DGT006 microphone, whose PDM capture then returns no data. Matches
+ * Seeed's own on-board-sensor reference overlay. */
+&pmic_i2c {
+	sda-gpios = <&gpio1 18 GPIO_ACTIVE_HIGH>;
+	scl-gpios = <&gpio1 17 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+};
+
 /* On-board PDM microphone (MSM261DGT006). The board definition provides
- * pinctrl and clock-source but leaves the controller disabled. */
+ * pinctrl (P1.13 CLK / P1.14 DIN) and clock-source but leaves the controller
+ * disabled. */
 &pdm20 {
 	status = "okay";
 };
 
-/* The Sense module powers the IMU and the PDM microphone from the nPM1300's
- * LDO1. Keep it at the required 3.3 V and enable the rail at boot so it is
- * already correct before any code runs; src/power.c then re-asserts 3.3 V and
- * waits for the parts to settle. regulator-init-microvolt makes the rail
- * correct even if power.c is ever compiled out (belt and suspenders). */
+/* The Sense module powers the PDM microphone (and, on this board, the IMU) from
+ * the nPM1300's LDO1. The board default is 1.8 V; the microphone needs 3.3 V.
+ * Keep the rail at 3.3 V and enable it at boot so it is already correct before
+ * any code runs; src/power.c then re-asserts 3.3 V and waits for the parts to
+ * settle. regulator-init-microvolt makes the rail correct even if power.c is
+ * ever compiled out. This only takes effect once &pmic_i2c above can actually
+ * reach the nPM1300. */
 &pmic {
 	regulators {
 		LDO1 {
