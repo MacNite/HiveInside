@@ -5,13 +5,14 @@ Zephyr**.
 
 The firmware reads every sensor, prints the readings to the USB serial console,
 runs the **same vibration and acoustic FFT band analysis as the ESP32-C6
-prototype**, and broadcasts each reduced result as a BLE beacon. The 26-byte
-manufacturer-data frame is directly compatible with the current HiveHub passive
-scanner; no BLE connection or wake synchronisation is needed.
+prototype**, and broadcasts each reduced result as a BLE beacon. The 29-byte
+manufacturer-data frame keeps its 26-byte version-1 prefix directly compatible
+with the current HiveHub passive scanner; no BLE connection or wake
+synchronisation is needed.
 
 ## What it reads
 
-Every `MEASURE_INTERVAL_MS` (default 5 s) the firmware reads all four sensors
+Every `MEASURE_INTERVAL_MS` (default 5 min) the firmware reads all four sensors
 and prints a block to the console:
 
 | Group | Sensor | Source |
@@ -36,14 +37,31 @@ cycle, so a partial board still gives a useful readout.
 
 ## BLE data transfer
 
-The node sends one non-connectable legacy advertisement containing flags plus a
-26-byte manufacturer-data value. Its wire format matches HiveHub's
-`parseHiveInside()` exactly: company ID `0x02E5`, magic `H`, format version 1,
-then climate, battery, vibration FFT and acoustic FFT values. A sensor failure
+The node sends one non-connectable legacy advertisement containing a 29-byte
+manufacturer-data value. Format version 2 retains every version-1 field at the
+same offset and appends acceleration peak and microphone peak, so existing
+HiveHubs continue to decode the core data while an updated decoder can expose
+both peaks. The frame starts with company ID `0x02E5`, magic `H`, and the format
+version, followed by climate, battery, vibration FFT and acoustic FFT values.
+A sensor failure
 clears that group's validity flag, preventing the server from interpreting
 zero-filled bytes as a real measurement.
 
-The primary advertisement is exactly full, so the human-readable device name
+The version-2 extension is little-endian and uses the existing group validity
+bits:
+
+| Offset | Field | Encoding | Valid when |
+|---:|---|---|---|
+| `26..27` | acceleration peak | `uint16`, 0.1 mg/LSB | accel flag (bit 1) |
+| `28` | microphone peak | `int8`, 1 dBFS/LSB | mic flag (bit 2) |
+
+HiveHub decoders that only understand the 26-byte version-1 prefix safely
+ignore these trailing bytes. They continue to ingest every existing field, but
+must add the offsets above before the two new peaks appear in backend data.
+
+The primary advertisement is exactly full. BLE Flags are optional for this
+non-connectable LE-only broadcaster and are omitted so the three peak-extension
+bytes fit without requiring extended advertising. The human-readable device name
 `HiveInside` is provided in its scan response. This preserves the complete
 manufacturer payload for HiveHub's passive scanner while letting an active
 setup scan display a friendly name. The source also declares the manufacturer
@@ -67,10 +85,11 @@ type.
   only after making sure the HiveHub scan window is several times longer than
   the chosen interval. Avoid intervals longer than the scan window.
 - Sensor acquisition—especially the multi-second accelerometer capture and PDM
-  microphone—is expected to dominate energy use, not beacon advertising. For a
-  deployed battery node, increase `MEASURE_INTERVAL_MS` from the five-second
-  bench default to the required reporting cadence (for example five minutes).
-  The last valid result continues advertising while the CPU sleeps.
+  microphone—is expected to dominate energy use, not beacon advertising. The
+  five-minute field default produces two fresh samples per ten-minute reporting
+  period. Set it to ten minutes for longer battery life if one fresh sample per
+  reporting period is sufficient. Scan-window overlap is not a reason to sample
+  more often: the last valid result continues advertising while the CPU sleeps.
 - Do not use system-off/deep sleep for the normal cycle: it stops the BLE
   controller and defeats asynchronous passive scanning. Zephyr `k_msleep()`
   already lets the kernel and radio enter their supported idle states. Reserve
@@ -80,7 +99,7 @@ type.
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.2.0 | sensor readout over USB
+[HiveInside] nrf54lm20a fw 0.3.0 | sensor readout over USB
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [SHT40] present on i2c@...
 [ACCEL] LSM6-class IMU at 0x6A on i2c@...
@@ -94,6 +113,11 @@ Example output:
   battery : 4.011 V  ~78%
 ----------------------------
 ```
+
+After each successful measurement advertisement update, the built-in blue LED
+lights for `MEASUREMENT_LED_BLINK_MS` (default 100 ms). It does not blink for the
+controller's automatic one-second repeats, only when fresh sensor data is
+published.
 
 ## Build, flash, monitor
 
@@ -172,6 +196,6 @@ firmware-nrf54lm20a/
 1. **Sensor readout over USB** — done.
 2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
    prototype) — done, printed to the console alongside the raw readings.
-3. **BLE measurement beacon** (the 26-byte manufacturer-data advertisement
+3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
 4. Firmware-over-BLE (MCUboot/DFU).

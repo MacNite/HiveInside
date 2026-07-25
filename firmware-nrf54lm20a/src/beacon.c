@@ -1,11 +1,11 @@
 /*
  * HiveInside manufacturer-data beacon.
  *
- * This is the exact 26-byte format consumed by HiveHub's
- * blesensor::parseHiveInside().  Keeping the complete measurement in the
- * primary advertising packet lets HiveHub use a passive scan; no connection,
- * pairing window, or wake-time rendezvous is required. Active setup scans can
- * additionally read the "HiveInside" local name from the scan response.
+ * Version 2 extends the 26-byte format consumed by existing HiveHubs with
+ * acceleration and microphone peaks at bytes 26..28. Keeping the version-1
+ * prefix unchanged preserves core-data compatibility, while the complete
+ * measurement remains in the primary advertising packet for passive scans.
+ * Active setup scans can additionally read the local name from the response.
  */
 #include "beacon.h"
 #include "hive_config.h"
@@ -21,9 +21,9 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
-#define FRAME_SIZE 26U
+#define FRAME_SIZE 29U
 #define FRAME_MAGIC 0x48U /* 'H' */
-#define FRAME_VERSION 0x01U
+#define FRAME_VERSION 0x02U
 
 #define FLAG_SHT   (1U << 0)
 #define FLAG_ACCEL (1U << 1)
@@ -101,6 +101,15 @@ static void encode(const struct measurement *m)
 		frame[24] = (uint8_t)rounded_i8(m->mic_band_stress_dbfs);
 		frame[25] = (uint8_t)rounded_i8(m->mic_band_high_dbfs);
 	}
+	/* Version 2 appends the two broadband peak values. Keeping every version-1
+	 * field at its original offset lets existing HiveHubs continue decoding the
+	 * core measurement while newer decoders consume these trailing bytes. */
+	if (m->accel_ok) {
+		put_u16(26, scaled_u16(m->accel_peak_mg, 10.0f));
+	}
+	if (m->mic_ok) {
+		frame[28] = (uint8_t)rounded_i8(m->mic_peak_dbfs);
+	}
 }
 
 int beacon_init(void)
@@ -128,8 +137,10 @@ int beacon_publish(const struct measurement *m)
 	}
 
 	encode(m);
+	/* Flags are optional for a non-connectable LE-only broadcaster. Omitting
+	 * that three-byte AD element leaves the complete 31-byte legacy payload for
+	 * the manufacturer element: 29 data bytes plus its length and type. */
 	const struct bt_data ad[] = {
-		BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_NO_BREDR),
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 	};
 	const struct bt_data scan_response[] = {

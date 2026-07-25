@@ -23,7 +23,7 @@
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.2.0"
+#define HIVEINSIDE_FW_VERSION "0.3.0"
 #endif
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
@@ -57,11 +57,18 @@
 
 /* ── Measurement cadence ───────────────────────────────────────────────── */
 
-/* How often to run a full sensor cycle and print the readout. Short by
- * default so a bench operator sees fresh values quickly; between cycles the
- * CPU sleeps. */
+/* How often to run a full sensor cycle and print the readout. The last result
+ * keeps advertising between cycles, so this interval does not have to overlap
+ * HiveHub's scan window. Five minutes is a conservative field default that
+ * still produces two fresh measurements per ten-minute reporting period. */
 #ifndef MEASURE_INTERVAL_MS
-#define MEASURE_INTERVAL_MS 5000
+#define MEASURE_INTERVAL_MS (5U * 60U * 1000U)
+#endif
+
+/* Briefly light the board's built-in blue LED after a freshly encoded
+ * measurement has successfully been handed to the Bluetooth controller. */
+#ifndef MEASUREMENT_LED_BLINK_MS
+#define MEASUREMENT_LED_BLINK_MS 100
 #endif
 
 /* ── Sensor enables ────────────────────────────────────────────────────── */
