@@ -79,6 +79,16 @@ The boot banner prints once at reset; press **RST** with the monitor connected
 to see it and the first readout. The console is a plain polled UART, so the
 firmware runs whether or not a terminal is attached.
 
+### Microphone bring-up
+
+The on-board microphone needs all three pieces of the Sense-board setup: P1.12
+must enable the sensor power gate, nPM1300 LDO1 must supply 3.3 V, and `pwm20`
+must be disabled because it shares a peripheral instance with `pdm20`. The
+overlay configures the latter two, while `power_init()` explicitly enables the
+power gate and LDO1 before the first capture. Microphone errors include the
+Zephyr return code on the serial console, which makes a wiring/driver failure
+distinguishable from silence.
+
 See [`../docs/flashing.md`](../docs/flashing.md) for the external-probe
 alternative and the `west` workflow, and [`../docs/wiring.md`](../docs/wiring.md)
 for the SHT40 and battery connections.

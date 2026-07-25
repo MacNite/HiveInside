@@ -1,6 +1,7 @@
 /* power.c — see power.h. */
 #include "power.h"
 
+#include <errno.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
@@ -27,8 +28,44 @@
 
 static const struct device *const ldo1 = DEVICE_DT_GET(LDO1_NODE);
 
+/* P1.12 gates the complete Sense-board sensor supply.  LDO1 being enabled is
+ * not sufficient when this upstream fixed regulator is off.  Seeed's DMIC
+ * reference application explicitly enables both regulators in this order. */
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+static const struct device *const power_en =
+	DEVICE_DT_GET(DT_NODELABEL(power_en));
+#endif
+
+static int enable_regulator(const struct device *dev, const char *name)
+{
+	if (!device_is_ready(dev)) {
+		printk("[PWR] %s regulator not ready\n", name);
+		return -ENODEV;
+	}
+
+	int err = regulator_enable(dev);
+
+	/* Zephyr regulators may report an already-enabled boot-on rail either as
+	 * success or -EALREADY, depending on the driver. */
+	if (err != 0 && err != -EALREADY) {
+		printk("[PWR] %s enable failed (%d)\n", name, err);
+		return err;
+	}
+
+	return 0;
+}
+
 void power_init(void)
 {
+	/* The board DTS marks this regulator boot-on, but enabling it explicitly
+	 * also works with older Seeed board definitions and mirrors their known-
+	 * good microphone example. */
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+	if (enable_regulator(power_en, "sensor power gate") != 0) {
+		return;
+	}
+#endif
+
 	if (!device_is_ready(ldo1)) {
 		printk("[PWR] nPM1300 LDO1 not ready — sensor rail unmanaged\n");
 		return;
@@ -39,12 +76,8 @@ void power_init(void)
 	if (err != 0) {
 		printk("[PWR] LDO1 set 3.3V failed (%d)\n", err);
 	}
-	if (!regulator_is_enabled(ldo1)) {
-		err = regulator_enable(ldo1);
-		if (err != 0) {
-			printk("[PWR] LDO1 enable failed (%d)\n", err);
-			return;
-		}
+	if (enable_regulator(ldo1, "LDO1") != 0) {
+		return;
 	}
 	/* The IMU and microphone share this rail. Give both parts time to
 	 * leave reset before their first I2C/PDM transaction. */

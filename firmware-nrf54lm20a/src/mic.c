@@ -124,12 +124,15 @@ void mic_read(struct measurement *m)
 
 	cfg.channel.req_chan_map_lo = dmic_build_channel_map(0, 0, PDM_CHAN_LEFT);
 
-	if (dmic_configure(dmic_dev, &cfg) != 0) {
-		printk("[MIC] dmic_configure failed\n");
+	int err = dmic_configure(dmic_dev, &cfg);
+
+	if (err != 0) {
+		printk("[MIC] dmic_configure failed (%d)\n", err);
 		return;
 	}
-	if (dmic_trigger(dmic_dev, DMIC_TRIGGER_START) != 0) {
-		printk("[MIC] start failed\n");
+	err = dmic_trigger(dmic_dev, DMIC_TRIGGER_START);
+	if (err != 0) {
+		printk("[MIC] start failed (%d)\n", err);
 		return;
 	}
 
@@ -143,8 +146,9 @@ void mic_read(struct measurement *m)
 		void *buf;
 		uint32_t size;
 
-		if (dmic_read(dmic_dev, 0, &buf, &size, READ_TIMEOUT_MS) != 0) {
-			printk("[MIC] read stopped after %u frames\n",
+		err = dmic_read(dmic_dev, 0, &buf, &size, READ_TIMEOUT_MS);
+		if (err != 0) {
+			printk("[MIC] read failed (%d) after %u frames\n", err,
 			       (unsigned)count);
 			break;
 		}
@@ -180,7 +184,10 @@ void mic_read(struct measurement *m)
 
 	/* Stop the PDM clock between captures — the microphone consumes power
 	 * whenever it is clocked. */
-	dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
+	err = dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
+	if (err != 0) {
+		printk("[MIC] stop failed (%d)\n", err);
+	}
 
 	if (count == 0) {
 		printk("[MIC] no PCM samples\n");
