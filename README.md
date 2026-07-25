@@ -49,7 +49,7 @@ value means the same thing across the ecosystem.
 
 - **BLE beacon transport (nRF54LM20A)** — the full measurement (climate,
   vibration + acoustic FFT bands, battery) broadcasts continuously as a
-  26-byte manufacturer-data advertisement that HiveHub decodes with a passive
+  29-byte manufacturer-data advertisement that HiveHub decodes with a passive
   scan. No connection, pairing window, or wake-sync schedule needed.
 - **Ultra-low power** — the nRF54 idles with only the ~1 s advertiser
   running (a few µA); no deep-sleep rendezvous machinery required, unlike the

@@ -25,7 +25,50 @@
 #include "sht40.h"
 
 #include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
+
+#define MEASUREMENT_LED_NODE DT_ALIAS(led0)
+
+#if DT_NODE_HAS_STATUS(MEASUREMENT_LED_NODE, okay)
+static const struct gpio_dt_spec measurement_led =
+	GPIO_DT_SPEC_GET(MEASUREMENT_LED_NODE, gpios);
+static bool measurement_led_ready;
+
+static void measurement_led_init(void)
+{
+	if (!gpio_is_ready_dt(&measurement_led)) {
+		printk("[LED] built-in LED controller is not ready\n");
+		return;
+	}
+	int err = gpio_pin_configure_dt(&measurement_led, GPIO_OUTPUT_INACTIVE);
+
+	if (err != 0) {
+		printk("[LED] built-in LED setup failed (%d)\n", err);
+		return;
+	}
+	measurement_led_ready = true;
+}
+
+static void measurement_led_blink(void)
+{
+	if (!measurement_led_ready) {
+		return;
+	}
+	(void)gpio_pin_set_dt(&measurement_led, 1);
+	k_msleep(MEASUREMENT_LED_BLINK_MS);
+	(void)gpio_pin_set_dt(&measurement_led, 0);
+}
+#else
+static void measurement_led_init(void)
+{
+	printk("[LED] no led0 devicetree alias; measurement blink disabled\n");
+}
+
+static void measurement_led_blink(void)
+{
+}
+#endif
 
 static void print_readout(const struct measurement *m)
 {
@@ -84,6 +127,7 @@ int main(void)
 	       HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
 
 	power_init();
+	measurement_led_init();
 	(void)beacon_init();
 
 	while (true) {
@@ -95,7 +139,9 @@ int main(void)
 		battery_read(&m);
 
 		print_readout(&m);
-		(void)beacon_publish(&m);
+		if (beacon_publish(&m) == 0) {
+			measurement_led_blink();
+		}
 
 		k_msleep(MEASURE_INTERVAL_MS);
 	}
