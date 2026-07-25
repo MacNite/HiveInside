@@ -2,10 +2,11 @@
  * hive_config.h — HiveInside XIAO nRF54LM20A Sense: identity, timing and
  * per-sensor settings.
  *
- * Target 1 (this firmware): read every sensor once per cycle and print the
- * result to the USB serial console. No BLE, no FFT — just a clean sensor
- * readout to prove the hardware and the toolchain end to end. Later targets
- * (BLE measurement beacon, FFT band analysis) build on top of this.
+ * This firmware reads every sensor once per cycle and prints the result to the
+ * USB serial console. Alongside the plain readings it runs the same vibration
+ * and acoustic FFT band analysis as the ESP32-C6 prototype, so a band value
+ * means the same thing across the ecosystem. There is no BLE yet — the BLE
+ * measurement beacon is a later target that builds on top of this.
  *
  * Hardware (see docs/wiring.md):
  *
@@ -22,7 +23,7 @@
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.1.0"
+#define HIVEINSIDE_FW_VERSION "0.2.0"
 #endif
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
@@ -59,6 +60,30 @@
 #define SHT40_ADDR 0x44
 #endif
 
+/* ── Accelerometer (vibration FFT) ─────────────────────────────────────────
+ *
+ * accel.c auto-detects the sensor on any enabled I²C bus:
+ *   - LSM6DS3TR-C / LSM6DS3 / LSM6DSL / LSM6DSO at 0x6A/0x6B (the Sense
+ *     module's on-board IMU), or
+ *   - LIS3DH / LIS2DH12 at 0x18/0x19 (the prototype's external breakout).
+ * Both are sampled at ~400 Hz into the same magnitude/FFT pipeline.
+ */
+
+/* Samples fed into the vibration FFT (power of two). 1024 @ ~400 Hz ≈ 2.5 s,
+ * ~0.4 Hz/bin — fine resolution for the 8–30 Hz swarm band. */
+#ifndef ACCEL_SAMPLE_COUNT
+#define ACCEL_SAMPLE_COUNT 1024
+#endif
+
+/* Vibration analysis bands (Hz), identical to the ESP32-C6 prototype and
+ * HiveScale/HiveHub so a value means the same thing across the ecosystem. */
+#define ACC_BAND_SWARM_LO 8      /*   8–30 Hz   Ramsey et al. 2020 pre-swarm */
+#define ACC_BAND_SWARM_HI 30
+#define ACC_BAND_FANNING_LO 30   /*  30–100 Hz  ventilation / fanning */
+#define ACC_BAND_FANNING_HI 100
+#define ACC_BAND_ACTIVITY_LO 100 /* 100–200 Hz  general worker activity */
+#define ACC_BAND_ACTIVITY_HI 200
+
 /* ── Microphone (PDM) ──────────────────────────────────────────────────── */
 
 /* PCM sample rate requested from the nRF PDM peripheral (hardware filtered —
@@ -70,6 +95,10 @@
 #ifndef MIC_SAMPLE_FRAMES
 #define MIC_SAMPLE_FRAMES 8000
 #endif
+/* Samples fed into the acoustic FFT (power of two). 2048 @ 16 kHz ≈ 7.8 Hz/bin. */
+#ifndef MIC_FFT_SAMPLE_COUNT
+#define MIC_FFT_SAMPLE_COUNT 2048
+#endif
 /* 100 ms capture blocks; the first MIC_WARMUP_BLOCKS are discarded so the
  * microphone and PDM filter settle before the level is accumulated. */
 #ifndef MIC_BLOCK_SAMPLES
@@ -78,6 +107,19 @@
 #ifndef MIC_WARMUP_BLOCKS
 #define MIC_WARMUP_BLOCKS 2
 #endif
+
+/* Acoustic FFT bands (Hz), identical to the ESP32-C6 prototype and
+ * HiveScale/HiveHub. */
+#define MIC_BAND_SUBBASS_LO 50   /*   50–150 Hz structural / low rumble */
+#define MIC_BAND_SUBBASS_HI 150
+#define MIC_BAND_HUM_LO 150      /*  150–300 Hz normal colony hum */
+#define MIC_BAND_HUM_HI 300
+#define MIC_BAND_PIPING_LO 300   /*  300–550 Hz queen piping / tooting */
+#define MIC_BAND_PIPING_HI 550
+#define MIC_BAND_STRESS_LO 550   /*  550–1500 Hz agitated / robbing */
+#define MIC_BAND_STRESS_HI 1500
+#define MIC_BAND_HIGH_LO 1500    /* 1500–3000 Hz harmonic overtones */
+#define MIC_BAND_HIGH_HI 3000
 
 /* ── Battery (nPM1300 fuel gauge) ──────────────────────────────────────── */
 

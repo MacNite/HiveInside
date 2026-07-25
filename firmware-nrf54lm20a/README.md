@@ -3,11 +3,11 @@
 Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
 Zephyr**.
 
-This is a fresh, minimal rewrite. **Target 1: read every sensor and print the
-result to the USB serial console.** There is deliberately no BLE and no FFT yet
-— the goal is a small, robust base that proves the hardware and the toolchain
-end to end. BLE transport and FFT band analysis are later targets that build on
-this.
+Fresh rewrite that reads every sensor, prints the readings to the USB serial
+console, and runs the **same vibration and acoustic FFT band analysis as the
+ESP32-C6 prototype** (identical bands and units, so a value means the same thing
+across the ecosystem). There is no BLE yet — the BLE measurement beacon is a
+later target that builds on this base.
 
 ## What it reads
 
@@ -17,12 +17,19 @@ and prints a block to the console:
 | Group | Sensor | Source |
 |---|---|---|
 | Climate | SHT40 (external, XIAO I²C header, `0x44`) | raw I²C, low-precision measure |
-| Acceleration | LSM6DS3TR-C on-board IMU (I²C `0x6A`) | raw I²C, single X/Y/Z sample in mg |
-| Sound | MSM261DGT006 on-board PDM mic | Zephyr `dmic` API, RMS + peak level (dBFS) |
+| Vibration | LSM6DS3TR-C on-board IMU (I²C `0x6A`) | raw I²C, ~1024 samples @ ~400 Hz → mean X/Y/Z + FFT bands (mg) |
+| Sound | MSM261DGT006 on-board PDM mic | Zephyr `dmic` API, RMS/peak + FFT bands (dBFS) |
 | Battery | nPM1300 PMIC fuel gauge | Zephyr sensor API (`SENSOR_CHAN_GAUGE_VOLTAGE`) |
 
 The accelerometer probe auto-detects the chip by `WHO_AM_I`, so a prototype-style
 external LIS3DH/LIS2DH12 (`0x18`/`0x19`) also works for bench comparisons.
+
+The FFT bands are the ecosystem-shared bands:
+
+- **Vibration (mg, gravity removed):** swarm `8–30 Hz`, fanning `30–100 Hz`,
+  activity `100–200 Hz`.
+- **Acoustic (dBFS):** sub-bass `50–150 Hz`, hum `150–300 Hz`, piping
+  `300–550 Hz`, stress `550–1500 Hz`, high `1500–3000 Hz`.
 
 Each group prints `n/a` when its sensor is missing or the read failed that
 cycle, so a partial board still gives a useful readout.
@@ -30,14 +37,17 @@ cycle, so a partial board still gives a useful readout.
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.1.0 | sensor readout over USB
+[HiveInside] nrf54lm20a fw 0.2.0 | sensor readout over USB
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [SHT40] present on i2c@...
 [ACCEL] LSM6-class IMU at 0x6A on i2c@...
 ---- HiveInside readout ----
   climate : 24.31 C   47.8 %RH
   accel   : x=-3.2 y=1.8 z=1004.6 mg  |a|=1004.6 mg
+  accel AC: rms=2.4 peak=9.1 mg  (1024@416Hz)
+  vib FFT : swarm=0.42 fan=0.18 act=0.09 mg
   sound   : rms=-61.4 dBFS  peak=-42.1 dBFS  (8000 frames)
+  ac FFT  : sub=-58.2 hum=-49.7 pipe=-63.1 stress=-71.4 hi=-88.0 dBFS
   battery : 4.011 V  ~78%
 ----------------------------
 ```
@@ -87,13 +97,14 @@ firmware-nrf54lm20a/
 │   └── app.overlay       identical copy of the root app.overlay
 └── src/
     ├── main.c            readout loop + console print
-    ├── hive_config.h     addresses, timing, per-sensor settings
+    ├── hive_config.h     addresses, timing, bands, per-sensor settings
     ├── measurement.h     one sensor snapshot, shared by every module
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
+    ├── fft.[ch]          dependency-free radix-2 FFT + band reduction
     ├── power.[ch]        nPM1300 LDO1 → 3.3 V sensor rail
     ├── sht40.[ch]        SHT40 climate
-    ├── accel.[ch]        LSM6DS3TR-C / LIS3DH acceleration
-    ├── mic.[ch]          PDM microphone level
+    ├── accel.[ch]        LSM6DS3TR-C / LIS3DH vibration + FFT bands
+    ├── mic.[ch]          PDM microphone level + FFT bands
     └── battery.[ch]      nPM1300 fuel gauge
 ```
 
@@ -104,8 +115,9 @@ firmware-nrf54lm20a/
 
 ## Roadmap
 
-1. **Sensor readout over USB** — this firmware.
-2. BLE measurement beacon (the 26-byte manufacturer-data advertisement HiveHub
+1. **Sensor readout over USB** — done.
+2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
+   prototype) — done, printed to the console alongside the raw readings.
+3. BLE measurement beacon (the 26-byte manufacturer-data advertisement HiveHub
    ingests).
-3. Vibration + acoustic FFT band analysis.
 4. Firmware-over-BLE (MCUboot/DFU).
