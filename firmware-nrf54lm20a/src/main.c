@@ -12,11 +12,12 @@
  * firmware boots and keeps sampling whether or not a terminal is attached.
  *
  * Alongside the plain readings it runs the same vibration and acoustic FFT band
- * analysis as the ESP32-C6 prototype and prints those bands too. There is no
- * BLE yet — the BLE measurement beacon is a later target that builds on this.
+ * analysis as the ESP32-C6 prototype, prints those bands, and broadcasts the
+ * reduced measurement in HiveHub's BLE manufacturer-data format.
  */
 #include "accel.h"
 #include "battery.h"
+#include "beacon.h"
 #include "hive_config.h"
 #include "measurement.h"
 #include "mic.h"
@@ -79,10 +80,11 @@ static void print_readout(const struct measurement *m)
 
 int main(void)
 {
-	printk("\n[HiveInside] %s fw %s | sensor readout over USB\n",
+	printk("\n[HiveInside] %s fw %s | USB + HiveHub BLE beacon\n",
 	       HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
 
 	power_init();
+	(void)beacon_init();
 
 	while (true) {
 		struct measurement m = { 0 };
@@ -93,6 +95,7 @@ int main(void)
 		battery_read(&m);
 
 		print_readout(&m);
+		(void)beacon_publish(&m);
 
 		k_msleep(MEASURE_INTERVAL_MS);
 	}
