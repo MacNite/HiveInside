@@ -1,118 +1,87 @@
 # Firmware-over-BLE (OTA) for HiveInside
 
-HiveInside has no WiFi — it is a battery-powered BLE-only sensor. HiveScale is
-the only node on the network with internet access, so it acts as the OTA relay:
+HiveInside has no Wi-Fi. HiveHub downloads a release over HTTPS and streams it
+through BLE to the XIAO nRF54LM20A Sense. The device writes each GATT DATA write
+directly to MCUboot's inactive slot; it never buffers an image in RAM and never
+marks an image bootable until END verifies its length and CRC.
 
-```
-backend (HTTPS .bin + CRC-32)  ──►  HiveScale  ──(BLE GATT)──►  HiveInside
-        firmware_releases             (WiFi)        OTA service     (dual OTA slots)
-```
+## MCUboot layout and safety
 
-This mirrors the way HiveScale already relays a BeeCounter image over I²C
-(`updateBeeCounter` / `bee_counter_client`); only the last-mile transport differs
-(GATT writes instead of I²C registers).
+The XIAO board definition divides its 2 MiB RRAM into a 64 KiB MCUboot region,
+two 449 KiB application slots (plus their secure/non-secure companions), and
+storage. `sysbuild.conf` enables MCUboot and `CONFIG_BOOTLOADER_MCUBOOT` builds
+the application for slot 0. Zephyr's `flash_img` API targets slot 1.
 
-## Why a streaming relay
+An interrupted, aborted, oversized, or corrupt upload may leave bytes in slot 1,
+but it cannot replace the running image: only a correctly sized, CRC-verified
+image reaches `boot_request_upgrade(BOOT_UPGRADE_TEST)`. MCUboot then boots it
+as a test image, retaining rollback protection.
 
-A HiveInside XIAO ESP32-C6 image is well over 1 MB. The HiveScale ESP32 (WROOM, no
-PSRAM) cannot buffer that in RAM, so HiveScale **streams** the HTTPS download
-straight into the GATT characteristics a chunk at a time and never holds the
-whole image. HiveInside likewise buffers nothing: each chunk is written directly
-to its inactive OTA slot. Nothing is committed until the final CRC check passes,
-so a dropped or corrupted transfer always leaves the device on its old image.
+## GATT wire contract
 
-## Partition layout
+All characteristics use service UUID
+`8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01`. The abbreviated UUIDs below retain the
+same `-7a1c-4b9e-9a2f-1d6e0b9c1a01` suffix.
 
-`firmware-esp32-c6/partitions_4mb_ota_no_fs.csv` gives the C6 two app slots (`ota_0` /
-`ota_1`, ~1.94 MB each). It is selected in `platformio.ini` via
-`board_build.partitions`. Without a dual-OTA table `Update.begin()` has nowhere
-to write the new image. This matches HiveScale's table of the same name.
-
-## GATT protocol
-
-All OTA characteristics live in the existing custom HiveInside service
-`8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01`. UUIDs and framing must stay in sync with
-HiveScale `firmware/src/ble_sensor.cpp` (the `HI_OTA_*` constants) and the
-deprecated HiveInside ESP32-C6 prototype's
-`firmware-esp32-c6/src/ble_link.cpp` (the `CHR_OTA_*` / `OTA_OP_*` constants).
-
-| Characteristic | UUID | Props | Payload |
+| Characteristic | UUID | Properties | Payload |
 |---|---|---|---|
-| OTA control | `8e8b0010-…` | Write | framed command (see below) |
-| OTA data | `8e8b0011-…` | Write / Write-NR | raw firmware bytes, in order |
+| OTA control | `8e8b0010-…` | Write | framed command; first byte is opcode |
+| OTA data | `8e8b0011-…` | Write / Write Without Response | raw firmware bytes, strictly in order |
 | OTA status | `8e8b0013-…` | Read / Notify | `state(1) + received(4 LE) + error(1)` |
 
-### Control frames (first byte = opcode)
+### Control frames
 
-| Opcode | Bytes | Meaning |
+| Opcode | Exact bytes | Meaning |
 |---|---|---|
-| `0x01` BEGIN | `0x01 + size(4 LE) + crc32(4 LE)` | `Update.begin(size)`; store expected CRC |
-| `0x03` END | `0x03` | verify size + CRC, `Update.end(true)`, reboot |
-| `0x04` ABORT | `0x04` | `Update.abort()`, stay on current image |
+| `0x01` BEGIN | `0x01 + size(4 LE) + crc32(4 LE)` | initialise slot-1 stream and expected values |
+| `0x03` END | `0x03` | verify size and CRC, request test upgrade, reboot |
+| `0x04` ABORT | `0x04` | discard the session and remain on the current image |
 
-### Status `state` byte
+### Status state byte
 
 | Value | Meaning |
 |---|---|
 | `0x00` | idle |
 | `0x01` | receiving |
 | `0x02` | done (verified, rebooting) |
-| `0x10`–`0x15` | error: begin / sequence / write / CRC / size / end |
+| `0x10` | begin error |
+| `0x11` | sequence error |
+| `0x12` | flash write error |
+| `0x13` | CRC error |
+| `0x14` | size error |
+| `0x15` | end/finalisation error |
+
+The `error` byte is zero outside an error state and otherwise repeats the error
+state value. `received` counts bytes accepted into the flash stream.
 
 ### CRC-32
 
-IEEE 802.3 (reflected poly `0xEDB88320`, init/final `0xFFFFFFFF`) — identical to
-`zlib.crc32` on the backend and `beecnt::crc32_buf` on HiveScale, so the value the
-backend computes at release time is verified unchanged on the device. End-to-end:
-if HiveScale's download is corrupt, the device's CRC check fails and it aborts —
-HiveScale cannot brick the sensor.
+CRC is IEEE 802.3 CRC-32: reflected polynomial `0xEDB88320`, initial value
+`0xFFFFFFFF`, final XOR `0xFFFFFFFF`. This is byte-identical to `zlib.crc32` and
+the value stored with a backend release.
 
 ## Transfer sequence
 
-1. Backend has an active `firmware_releases` row with `target = 'hiveinside'`
-   (filename + crc32). An operator queues the update:
-   `POST /api/v1/devices/{device_id}/commands/update-hiveinside?slot=1`.
-2. On its next command poll HiveScale receives `update_hiveinside` with
-   `{ slot, url, crc32 }`, resolves the slot's paired BLE MAC
-   (`bleSensorMac0`/`bleSensorMac1`), and calls `updateHiveInside()`.
-3. HiveScale opens the HTTPS GET, then opens the BLE session
-   (`blesensor::otaBegin` → locate, connect, MTU exchange, BEGIN), and pumps the
-   body into the DATA characteristic (`otaWrite`). Each DATA write is
-   flow-controlled: the device only sends the ATT write-response after it has
-   flashed the chunk.
-4. HiveScale sends END (`otaFinish`) and polls STATUS. The device verifies size +
-   CRC, calls `Update.end(true)` and reports `done`.
-5. `ble::loopOta()` reboots HiveInside into the new slot ~1.5 s later (after the
-   central has had a chance to read `done`).
+1. Connect to the node's connectable advertising set and discover the service.
+2. Write BEGIN and confirm STATUS is receiving with zero bytes.
+3. Stream the image in order to DATA. Writes with response provide natural flash
+   flow control; Write Without Response is also part of the contract.
+4. Write END. The node checks exact size and CRC, asks MCUboot for a test upgrade,
+   reports done, and reboots after 1.5 seconds so the relay can observe status.
+5. On cancellation write ABORT. On disconnect during reception, treat the
+   session as failed and begin a fresh transfer later.
 
-During a transfer HiveInside suppresses deep sleep and skips measurement
-(`ble::isOtaActive()` gates `loop()` in `main.cpp`).
+## Coexistence with measurement advertising
 
-## Build flags
+Zephyr runs two legacy advertising sets. The first remains the unchanged,
+non-connectable scannable measurement beacon: its full 29-byte manufacturer
+record is in the primary packet and its identity stays in the scan response.
+The second set is connectable and advertises the OTA service. Thus HiveHub's
+passive scanner keeps receiving the existing wire format while an OTA relay can
+open GATT independently. While STATUS is receiving (or a verified reboot is
+pending), the main loop skips sensor acquisition and avoids long sleep.
 
-* HiveInside: `-DHIVEINSIDE_OTA_ENABLED=1` (default in `platformio.ini`).
-* HiveScale: `HIVEINSIDE_OTA_ENABLED` (default `1` in its
-  `firmware/include/config.h`).
-  Independent of `HIVEINSIDE_USE_GATT`, which only selects how *measurements* are
-  read — OTA needs only a GATT-client connection.
+## Build flag
 
-## Limitations / notes
-
-* The relay needs the device paired (its MAC stored in a HiveScale BLE slot) and
-  reachable during HiveScale's wake window. If HiveInside is asleep, the locate
-  scan may miss it; re-queue or widen its connect/listen window.
-* Transfer time is roughly `image_size / (chunk × writes-per-second)`. With a
-  negotiated MTU of ~247 (chunk ≈ 244 B) and write-with-response flow control,
-  expect a few minutes for a ~1.3 MB image — acceptable for an infrequent update.
-* This is **deprecated** ESP32-C6 prototype firmware. Its Arduino `Update.h`
-  implementation and dual-OTA partition table remain supported for historical
-  testing and migration reference.
-* The primary XIAO nRF54LM20A Sense firmware exposes the OTA characteristics
-  above as a **placeholder**: the UUIDs, opcodes and status framing are in
-  place (`firmware-nrf54lm20a/src/gatt_hive.c`), but MCUboot/DFU is **not**
-  integrated, so the device rejects `BEGIN` at the ATT level. This makes a
-  HiveHub relay fail fast — "OTA BEGIN write failed" — *before* it downloads
-  and streams an image, instead of wasting a multi-minute transfer. The
-  future real implementation keeps this wire contract and replaces the
-  handlers with MCUboot slot writes + CRC verify; it does not use the
-  ESP32-specific `Update.h` flow.
+`HIVEINSIDE_OTA_ENABLED` defaults to `1` in the firmware and PlatformIO build.
+Set it to `0` at compile time to omit the GATT service and OTA application code.

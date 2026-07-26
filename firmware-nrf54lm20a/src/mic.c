@@ -2,7 +2,7 @@
  *
  * The nRF54's PDM peripheral filters PDM to 16-bit PCM in hardware, so this
  * module only gathers PCM blocks through Zephyr's dmic API and runs the same
- * dBFS + FFT band analysis as the ESP32-C6 prototype, so a band value means the
+ * dBFS + the ecosystem's shared FFT band analysis, so a band value means the
  * same thing across the ecosystem.
  *
  * The PDM clock only runs between DMIC_TRIGGER_START and _STOP, so the

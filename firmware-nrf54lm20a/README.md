@@ -4,8 +4,8 @@ Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
 Zephyr**.
 
 The firmware reads every sensor, prints the readings to the USB serial console,
-runs the **same vibration and acoustic FFT band analysis as the ESP32-C6
-prototype**, and broadcasts each reduced result as a BLE beacon. The 29-byte
+runs the ecosystem's shared **vibration and acoustic FFT band analysis**, and
+broadcasts each reduced result as a BLE beacon. The 29-byte
 manufacturer-data frame keeps its 26-byte version-1 prefix directly compatible
 with the current HiveHub passive scanner; no BLE connection or wake
 synchronisation is needed.
@@ -83,8 +83,22 @@ the USB console path.
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
-**HiveInside (nRF54LM20A) — beacon**; do not select the legacy ESP32-C6 GATT
-type.
+**HiveInside (nRF54LM20A) — beacon**.
+
+### Firmware-over-BLE
+
+A second, connectable legacy advertising set exposes the custom OTA service
+without changing the non-connectable measurement beacon or its scan response.
+The control, data, and status characteristics follow
+[`docs/ota-over-ble.md`](../docs/ota-over-ble.md). DATA writes stream through
+Zephyr's `flash_img` API into MCUboot slot 1; END requests an upgrade only after
+the exact byte count and IEEE CRC-32 match. Sensor acquisition pauses while a
+transfer is active, and the node reboots 1.5 seconds after publishing DONE.
+
+The board's 2 MiB RRAM layout provides a 64 KiB boot partition and two 449 KiB
+application slots (with corresponding secure/non-secure partitions). Sysbuild
+enables MCUboot. `HIVEINSIDE_OTA_ENABLED` defaults to `1` and can be overridden
+to `0` to compile out the service.
 
 ### Radio sleep and battery life
 
@@ -111,7 +125,7 @@ type.
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.0 | sensor readout over USB
+[HiveInside] nrf54lm20a fw 0.5.0 | sensor readout over USB
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [SHT40] present on i2c@...
 [ACCEL] LSM6-class IMU at 0x6A on i2c@...
@@ -187,6 +201,7 @@ firmware-nrf54lm20a/
 └── src/
     ├── main.c            sensor loop + console print + beacon publish
     ├── beacon.[ch]       HiveHub-compatible manufacturer-data advertising
+    ├── gatt_hive.[ch]    MCUboot-backed Firmware-over-BLE GATT service
     ├── hive_config.h     addresses, timing, bands, per-sensor settings
     ├── measurement.h     one sensor snapshot, shared by every module
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
@@ -206,9 +221,9 @@ firmware-nrf54lm20a/
 ## Roadmap
 
 1. **Sensor readout over USB** — done.
-2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
-   prototype) — done, printed to the console alongside the raw readings.
+2. **Vibration + acoustic FFT band analysis** — done, printed to the console
+   alongside the raw readings.
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
 4. **BLE board/firmware identity** (compact scan-response record) — done.
-5. Firmware-over-BLE (MCUboot/DFU).
+5. **Firmware-over-BLE (MCUboot/DFU)** — done.

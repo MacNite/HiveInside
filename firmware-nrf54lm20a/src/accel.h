@@ -4,7 +4,7 @@
  * (0x6A/0x6B) or a prototype-style external LIS3DH/LIS2DH12 (0x18/0x19) on any
  * enabled I²C bus, then samples ~2.5 s of acceleration at ~400 Hz. It reports
  * both the mean (static/orientation) X/Y/Z and the AC vibration reduced to the
- * shared swarm/fanning/activity bands (same bands as the ESP32-C6 prototype).
+ * shared swarm/fanning/activity bands (same bands as the ecosystem).
  */
 #pragma once
 

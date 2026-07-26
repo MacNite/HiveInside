@@ -11,14 +11,15 @@
  * adapter. See docs/flashing.md. The console is a plain polled UART, so the
  * firmware boots and keeps sampling whether or not a terminal is attached.
  *
- * Alongside the plain readings it runs the same vibration and acoustic FFT band
- * analysis as the ESP32-C6 prototype, prints those bands, and broadcasts the
+ * Alongside the plain readings it runs the ecosystem's shared vibration and
+ * acoustic FFT band analysis, prints those bands, and broadcasts the
  * reduced measurement in HiveHub's BLE manufacturer-data format.
  */
 #include "accel.h"
 #include "battery.h"
 #include "beacon.h"
 #include "hive_config.h"
+#include "gatt_hive.h"
 #include "measurement.h"
 #include "mic.h"
 #include "power.h"
@@ -129,8 +130,14 @@ int main(void)
 	power_init();
 	measurement_led_init();
 	(void)beacon_init();
+	(void)gatt_hive_init();
 
 	while (true) {
+		if (gatt_hive_ota_active()) {
+			/* Keep the CPU/radio available and leave flash bandwidth to DFU. */
+			k_msleep(100);
+			continue;
+		}
 		struct measurement m = { 0 };
 
 		sht40_read(&m);

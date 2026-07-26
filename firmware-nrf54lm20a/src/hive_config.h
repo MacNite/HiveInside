@@ -4,7 +4,7 @@
  *
  * This firmware reads every sensor once per cycle and prints the result to the
  * USB serial console. Alongside the plain readings it runs the same vibration
- * and acoustic FFT band analysis as the ESP32-C6 prototype, so a band value
+ * and acoustic FFT bands shared by the ecosystem, so a band value
  * means the same thing across the ecosystem. Each completed measurement is
  * also broadcast in the manufacturer-data format consumed by HiveHub.
  *
@@ -23,20 +23,24 @@
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.4.0"
+#define HIVEINSIDE_FW_VERSION "0.5.0"
 #endif
 /* Keep the advertised representation numeric and fixed-width.  These values
  * intentionally do not build HIVEINSIDE_FW_VERSION with preprocessor string
  * concatenation: the console continues to use the same plain-string-literal
  * mechanism as the last known-good firmware. */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0U
-#define HIVEINSIDE_FW_VERSION_MINOR 4U
+#define HIVEINSIDE_FW_VERSION_MINOR 5U
 #define HIVEINSIDE_FW_VERSION_PATCH 0U
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
 /* Stable wire identifier for the Seeed XIAO nRF54LM20A board. */
 #define HIVEINSIDE_BOARD_ID 2U
+
+#ifndef HIVEINSIDE_OTA_ENABLED
+#define HIVEINSIDE_OTA_ENABLED 1
+#endif
 
 /* Human-readable identity shown by active BLE scanners during setup. The
  * manufacturer name is also kept here as explicit product metadata; BLE
@@ -117,7 +121,7 @@
 #define ACCEL_SAMPLE_COUNT 1024
 #endif
 
-/* Vibration analysis bands (Hz), identical to the ESP32-C6 prototype and
+/* Vibration analysis bands (Hz), identical to the ecosystem and
  * HiveScale/HiveHub so a value means the same thing across the ecosystem. */
 #define ACC_BAND_SWARM_LO 8      /*   8–30 Hz   Ramsey et al. 2020 pre-swarm */
 #define ACC_BAND_SWARM_HI 30
@@ -150,7 +154,7 @@
 #define MIC_WARMUP_BLOCKS 2
 #endif
 
-/* Acoustic FFT bands (Hz), identical to the ESP32-C6 prototype and
+/* Acoustic FFT bands (Hz), identical to the ecosystem and
  * HiveScale/HiveHub. */
 #define MIC_BAND_SUBBASS_LO 50   /*   50–150 Hz structural / low rumble */
 #define MIC_BAND_SUBBASS_HI 150

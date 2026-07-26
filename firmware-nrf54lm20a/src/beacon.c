@@ -60,6 +60,7 @@ static uint8_t frame[FRAME_SIZE];
 static bool bluetooth_ready;
 static bool advertising;
 static bool scannable = true; /* cleared if the controller rejects the scan response */
+static struct bt_le_ext_adv *measurement_adv;
 
 static void put_u16(size_t offset, uint16_t value)
 {
@@ -185,8 +186,14 @@ int beacon_publish(const struct measurement *m)
 		struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
 			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
 			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
-		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
-				      ARRAY_SIZE(scan_response));
+		err = bt_le_ext_adv_create(&param, NULL, &measurement_adv);
+		if (err == 0) {
+			err = bt_le_ext_adv_set_data(measurement_adv, ad, ARRAY_SIZE(ad),
+						 scan_response, ARRAY_SIZE(scan_response));
+		}
+		if (err == 0) {
+			err = bt_le_ext_adv_start(measurement_adv, BT_LE_EXT_ADV_START_DEFAULT);
+		}
 		if (err != 0) {
 			/* The controller rejected the scannable beacon. Fall back
 			 * to the known-good non-connectable advert so HiveHub keeps
@@ -195,16 +202,22 @@ int beacon_publish(const struct measurement *m)
 			       "falling back to non-connectable\n", err);
 			scannable = false;
 			param.options = BT_LE_ADV_OPT_USE_IDENTITY;
-			err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), NULL, 0);
+			if (measurement_adv != NULL) {
+				(void)bt_le_ext_adv_delete(measurement_adv);
+				measurement_adv = NULL;
+			}
+			err = bt_le_ext_adv_create(&param, NULL, &measurement_adv);
+			if (err == 0) err = bt_le_ext_adv_set_data(measurement_adv, ad, ARRAY_SIZE(ad), NULL, 0);
+			if (err == 0) err = bt_le_ext_adv_start(measurement_adv, BT_LE_EXT_ADV_START_DEFAULT);
 		}
 		if (err == 0) {
 			advertising = true;
 		}
 	} else if (scannable) {
-		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), scan_response,
-					ARRAY_SIZE(scan_response));
+		err = bt_le_ext_adv_set_data(measurement_adv, ad, ARRAY_SIZE(ad), scan_response,
+					     ARRAY_SIZE(scan_response));
 	} else {
-		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
+		err = bt_le_ext_adv_set_data(measurement_adv, ad, ARRAY_SIZE(ad), NULL, 0);
 	}
 
 	if (err != 0) {
