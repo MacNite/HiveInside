@@ -228,7 +228,7 @@ int gatt_hive_init(void)
 		BT_DATA_BYTES(BT_DATA_UUID128_ALL, HIVE_UUID(0x8e8b0001)),
 	};
 	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-		BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY,
+		BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_USE_IDENTITY,
 		BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
 	int err = bt_le_ext_adv_create(&param, NULL, &connectable_adv);
 	if (err == 0) err = bt_le_ext_adv_set_data(connectable_adv, ad, ARRAY_SIZE(ad), NULL, 0);
