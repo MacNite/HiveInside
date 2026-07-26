@@ -31,10 +31,15 @@ uses that board layout rather than carrying a second, easily-diverged overlay.
 The application must remain below the 449 KiB slot limit.
 
 `sysbuild.conf` enables MCUboot and `CONFIG_BOOTLOADER_MCUBOOT` causes the
-application to be linked with its MCUboot header. A sysbuild release produces
-`build/hiveinside/zephyr/zephyr.signed.bin` (or the PlatformIO build directory's
-`zephyr/zephyr.signed.bin`); **that signed file**, including its MCUboot header,
-is the object uploaded to the backend and whose CRC/size are sent in BEGIN.
+application to be linked with its MCUboot header. Only a `west --sysbuild` build
+produces the signed release artifact `build/<app>/zephyr/zephyr.signed.bin`;
+**that signed file**, including its MCUboot header, is the object uploaded to the
+backend and whose CRC/size are sent in BEGIN.
+
+> PlatformIO's Zephyr builder does **not** run sysbuild — it builds the
+> application alone and never emits a signed image or a bootable merged hex.
+> Build and flash releases with `west` (see [`flashing.md`](flashing.md)); treat
+> `pio run` only as a compile check.
 
 ## GATT protocol
 
