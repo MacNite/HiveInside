@@ -59,7 +59,6 @@ BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +
 static uint8_t frame[FRAME_SIZE];
 static bool bluetooth_ready;
 static bool advertising;
-static bool scannable = true; /* cleared if the controller rejects the scan response */
 
 static void put_u16(size_t offset, uint16_t value)
 {
@@ -177,34 +176,22 @@ int beacon_publish(const struct measurement *m)
 	int err;
 
 	if (!advertising) {
-		/* Legacy scannable undirected advertising (ADV_SCAN_IND): the
+		/* Legacy connectable undirected advertising (ADV_IND): the
 		 * measurement stays in the primary packet for HiveHub's passive
 		 * scan while the "HiveInside" name rides in the scan response for
 		 * active setup scans. Only the legacy PDU allows both payloads at
 		 * once, so never let extended advertising be selected here. */
 		struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
+			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONNECTABLE,
 			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
 		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
 				      ARRAY_SIZE(scan_response));
-		if (err != 0) {
-			/* The controller rejected the scannable beacon. Fall back
-			 * to the known-good non-connectable advert so HiveHub keeps
-			 * receiving measurements; the friendly name is best-effort. */
-			printk("[BLE] scannable start failed (%d); "
-			       "falling back to non-connectable\n", err);
-			scannable = false;
-			param.options = BT_LE_ADV_OPT_USE_IDENTITY;
-			err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), NULL, 0);
-		}
 		if (err == 0) {
 			advertising = true;
 		}
-	} else if (scannable) {
+	} else {
 		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), scan_response,
 					ARRAY_SIZE(scan_response));
-	} else {
-		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
 	}
 
 	if (err != 0) {
@@ -213,4 +200,32 @@ int beacon_publish(const struct measurement *m)
 		printk("[BLE] measurement advertised (flags=0x%02x)\n", frame[4]);
 	}
 	return err;
+}
+
+void beacon_connected(void)
+{
+	advertising = false;
+}
+
+void beacon_disconnected(void)
+{
+	const struct bt_data ad[] = {
+		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
+	};
+	const struct bt_data scan_response[] = {
+		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
+			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
+	};
+	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
+		BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONNECTABLE,
+		BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
+	int err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
+				  ARRAY_SIZE(scan_response));
+
+	if (err == 0 || err == -EALREADY) {
+		advertising = true;
+	} else {
+		printk("[BLE] advertising restart failed (%d)\n", err);
+	}
 }

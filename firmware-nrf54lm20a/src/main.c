@@ -21,12 +21,14 @@
 #include "hive_config.h"
 #include "measurement.h"
 #include "mic.h"
+#include "ota.h"
 #include "power.h"
 #include "sht40.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/dfu/mcuboot.h>
 
 #define MEASUREMENT_LED_NODE DT_ALIAS(led0)
 
@@ -129,8 +131,19 @@ int main(void)
 	power_init();
 	measurement_led_init();
 	(void)beacon_init();
+	ota_init();
+	/* A test-swapped image confirms only after core application bring-up. If
+	 * it cannot reach here, MCUboot will revert it on the following reset. */
+	int confirm_err = boot_write_img_confirmed();
+	if (confirm_err != 0) {
+		printk("[OTA] image confirmation returned %d\n", confirm_err);
+	}
 
 	while (true) {
+		if (ota_is_active()) {
+			k_msleep(100);
+			continue;
+		}
 		struct measurement m = { 0 };
 
 		sht40_read(&m);
