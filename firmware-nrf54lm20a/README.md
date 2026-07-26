@@ -91,9 +91,10 @@ A second, connectable legacy advertising set exposes the custom OTA service
 without changing the non-connectable measurement beacon or its scan response.
 The control, data, and status characteristics follow
 [`docs/ota-over-ble.md`](../docs/ota-over-ble.md). DATA writes stream through
-Zephyr's `flash_img` API into MCUboot slot 1; END requests an upgrade only after
-the exact byte count and IEEE CRC-32 match. Sensor acquisition pauses while a
-transfer is active, and the node reboots 1.5 seconds after publishing DONE.
+Zephyr's `flash_img` buffered-write API into MCUboot slot 1; END requests an
+upgrade only after the exact byte count and IEEE CRC-32 match. Sensor acquisition
+pauses while a transfer is active, and the node reboots 1.5 seconds after
+publishing DONE.
 
 The board's 2 MiB RRAM layout provides a 64 KiB boot partition and two 449 KiB
 application slots (with corresponding secure/non-secure partitions). Sysbuild

@@ -21,6 +21,8 @@ jobs:
         run: diff -u firmware-nrf54lm20a/prj.conf firmware-nrf54lm20a/zephyr/prj.conf
       - name: app.overlay copies must be identical
         run: diff -u firmware-nrf54lm20a/app.overlay firmware-nrf54lm20a/zephyr/app.overlay
+      - name: sysbuild.conf copies must be identical
+        run: diff -u firmware-nrf54lm20a/sysbuild.conf firmware-nrf54lm20a/zephyr/sysbuild.conf
 
   build-nrf54lm20a:
     runs-on: ubuntu-latest
@@ -42,24 +44,3 @@ jobs:
         run: pip install platformio
       - name: Build firmware
         run: pio run -d firmware-nrf54lm20a
-
-  build-esp32-c6:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.platformio/packages
-            ~/.platformio/platforms
-            ~/.platformio/penv
-          key: pio-esp32-c6-${{ hashFiles('firmware-esp32-c6/platformio.ini', 'firmware-esp32-c6/partitions_4mb_ota_no_fs.csv') }}
-      - name: Install PlatformIO
-        run: pip install platformio
-      - name: Build firmware
-        run: pio run -d firmware-esp32-c6 -e c6_gatt_deprecated

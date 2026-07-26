@@ -125,7 +125,10 @@ static ssize_t write_control(struct bt_conn *conn, const struct bt_gatt_attr *at
 			fail(OTA_ERR_BEGIN);
 			break;
 		}
-		flash_img_init(&flash_ctx);
+		if (flash_img_init(&flash_ctx) != 0) {
+			fail(OTA_ERR_BEGIN);
+			break;
+		}
 		received = 0U;
 		running_crc = 0xffffffffU;
 		error = 0U;
@@ -186,8 +189,8 @@ static ssize_t write_data(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		fail(OTA_ERR_SIZE);
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
-	if (flash_img_buffer_write(&flash_ctx, buf, len,
-				   received + len == expected_size) != 0) {
+	if (flash_img_buffered_write(&flash_ctx, buf, len,
+				      received + len == expected_size) != 0) {
 		fail(OTA_ERR_WRITE);
 		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
 	}
