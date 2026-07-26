@@ -59,7 +59,7 @@ BT_GATT_SERVICE_DEFINE(ota_service,
 		BT_GATT_PERM_WRITE, NULL, data_write, NULL),
 	BT_GATT_CHARACTERISTIC(&status_uuid.uuid,
 		BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
-		BT_GATT_PERM_READ, status_read, NULL),
+		BT_GATT_PERM_READ, status_read, NULL, NULL),
 	BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
 
 static void publish_status(void)
