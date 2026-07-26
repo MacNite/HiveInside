@@ -182,7 +182,7 @@ int beacon_publish(const struct measurement *m)
 		 * active setup scans. Only the legacy PDU allows both payloads at
 		 * once, so never let extended advertising be selected here. */
 		struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONNECTABLE,
+			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONN,
 			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
 		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
 				      ARRAY_SIZE(scan_response));
@@ -218,7 +218,7 @@ void beacon_disconnected(void)
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
 	};
 	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-		BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONNECTABLE,
+		BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONN,
 		BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
 	int err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
 				  ARRAY_SIZE(scan_response));
