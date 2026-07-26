@@ -61,6 +61,15 @@ static bool bluetooth_ready;
 static bool advertising;
 static bool scannable = true; /* cleared if the controller rejects the scan response */
 
+/* The measurement beacon runs on its own extended-advertising set that emits a
+ * legacy PDU (no BT_LE_ADV_OPT_EXT_ADV): on air it is exactly the same legacy
+ * ADV_SCAN_IND HiveHub already decodes. The extended-advertising API is used
+ * only so this non-connectable set can coexist with the connectable OTA set in
+ * gatt_hive.c (two advertising sets at once — CONFIG_BT_EXT_ADV_MAX_ADV_SET=2);
+ * neither the manufacturer payload nor the scan-response identity record
+ * changes. */
+static struct bt_le_ext_adv *beacon_adv;
+
 static void put_u16(size_t offset, uint16_t value)
 {
 	frame[offset] = (uint8_t)value;
@@ -138,6 +147,22 @@ static void encode(const struct measurement *m)
 	}
 }
 
+/* Create the beacon advertising set. Non-connectable, from the stable identity
+ * address; scannable (ADV_SCAN_IND) when want_scannable, else ADV_NONCONN_IND.
+ * Legacy PDU in both cases — BT_LE_ADV_OPT_EXT_ADV is deliberately never set. */
+static int beacon_adv_create(bool want_scannable)
+{
+	uint32_t opts = BT_LE_ADV_OPT_USE_IDENTITY;
+
+	if (want_scannable) {
+		opts |= BT_LE_ADV_OPT_SCANNABLE;
+	}
+	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
+		opts, BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
+
+	return bt_le_ext_adv_create(&param, NULL, &beacon_adv);
+}
+
 int beacon_init(void)
 {
 	int err = bt_enable(NULL);
@@ -146,6 +171,22 @@ int beacon_init(void)
 		printk("[BLE] init failed (%d)\n", err);
 		return err;
 	}
+
+	/* Prefer the scannable set so active setup scans can read the name and
+	 * identity record; fall back to a plain non-connectable beacon if the
+	 * controller rejects a scannable set. */
+	err = beacon_adv_create(true);
+	if (err != 0) {
+		printk("[BLE] scannable adv create failed (%d); "
+		       "falling back to non-connectable\n", err);
+		scannable = false;
+		err = beacon_adv_create(false);
+	}
+	if (err != 0) {
+		printk("[BLE] adv create failed (%d)\n", err);
+		return err;
+	}
+
 	printk("[BLE] ready; name=%s manufacturer=%s id=0x%04x interval=%u ms\n",
 	       HIVEINSIDE_DEVICE_NAME, HIVEINSIDE_MANUFACTURER_NAME,
 	       HIVEINSIDE_COMPANY_ID, BLE_ADV_INTERVAL_MS);
@@ -174,37 +215,39 @@ int beacon_publish(const struct measurement *m)
 			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
 	};
+	const struct bt_data *sd = scannable ? scan_response : NULL;
+	size_t sd_len = scannable ? ARRAY_SIZE(scan_response) : 0U;
 	int err;
 
-	if (!advertising) {
-		/* Legacy scannable undirected advertising (ADV_SCAN_IND): the
-		 * measurement stays in the primary packet for HiveHub's passive
-		 * scan while the "HiveInside" name rides in the scan response for
-		 * active setup scans. Only the legacy PDU allows both payloads at
-		 * once, so never let extended advertising be selected here. */
-		struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_SCANNABLE,
-			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
-		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
-				      ARRAY_SIZE(scan_response));
-		if (err != 0) {
-			/* The controller rejected the scannable beacon. Fall back
-			 * to the known-good non-connectable advert so HiveHub keeps
-			 * receiving measurements; the friendly name is best-effort. */
-			printk("[BLE] scannable start failed (%d); "
-			       "falling back to non-connectable\n", err);
-			scannable = false;
-			param.options = BT_LE_ADV_OPT_USE_IDENTITY;
-			err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), NULL, 0);
+	/* Legacy scannable undirected advertising (ADV_SCAN_IND): the measurement
+	 * stays in the primary packet for HiveHub's passive scan while the
+	 * "HiveInside" name and identity record ride in the scan response for
+	 * active setup scans. The set was created with a legacy PDU (see
+	 * beacon_adv_create); extended advertising is never selected, so both
+	 * payloads still travel together. */
+	err = bt_le_ext_adv_set_data(beacon_adv, ad, ARRAY_SIZE(ad), sd, sd_len);
+	if (err != 0 && scannable) {
+		/* The controller rejected the scan response. Recreate the set as a
+		 * plain non-connectable advert so HiveHub keeps receiving
+		 * measurements; the friendly name is best-effort. */
+		printk("[BLE] scannable set_data failed (%d); "
+		       "falling back to non-connectable\n", err);
+		(void)bt_le_ext_adv_stop(beacon_adv);
+		(void)bt_le_ext_adv_delete(beacon_adv);
+		beacon_adv = NULL;
+		advertising = false;
+		scannable = false;
+		err = beacon_adv_create(false);
+		if (err == 0) {
+			err = bt_le_ext_adv_set_data(beacon_adv, ad,
+						     ARRAY_SIZE(ad), NULL, 0);
 		}
+	}
+	if (err == 0 && !advertising) {
+		err = bt_le_ext_adv_start(beacon_adv, BT_LE_EXT_ADV_START_DEFAULT);
 		if (err == 0) {
 			advertising = true;
 		}
-	} else if (scannable) {
-		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), scan_response,
-					ARRAY_SIZE(scan_response));
-	} else {
-		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
 	}
 
 	if (err != 0) {

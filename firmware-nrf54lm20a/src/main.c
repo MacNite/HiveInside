@@ -18,6 +18,7 @@
 #include "accel.h"
 #include "battery.h"
 #include "beacon.h"
+#include "gatt_hive.h"
 #include "hive_config.h"
 #include "measurement.h"
 #include "mic.h"
@@ -123,14 +124,35 @@ static void print_readout(const struct measurement *m)
 
 int main(void)
 {
-	printk("\n[HiveInside] %s fw %s | USB + HiveHub BLE beacon\n",
-	       HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
+	printk("\n[HiveInside] %s fw %s | USB + HiveHub BLE beacon"
+#if HIVEINSIDE_OTA_ENABLED
+	       " + OTA"
+#endif
+	       "\n", HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
 
 	power_init();
 	measurement_led_init();
-	(void)beacon_init();
+	if (beacon_init() == 0) {
+		/* Bring up the connectable OTA GATT service on the same radio.
+		 * beacon_init() has already enabled Bluetooth; a failure here
+		 * leaves the measurement beacon fully working. Compiles to a
+		 * no-op when HIVEINSIDE_OTA_ENABLED=0. */
+		(void)gatt_hive_init();
+	}
 
 	while (true) {
+		/* Gate normal measurement + sleep during an OTA transfer: while a
+		 * relay is streaming (or a verified image is pending reboot) skip
+		 * the multi-second sensor cycle and poll briefly instead, so the
+		 * DFU writes and the deferred reboot are not delayed. The node
+		 * never uses system-off deep sleep, so the radio stays up and the
+		 * GATT/DFU work proceeds in the Bluetooth thread regardless. */
+		if (gatt_hive_ota_active()) {
+			gatt_hive_poll();
+			k_msleep(OTA_ACTIVE_POLL_MS);
+			continue;
+		}
+
 		struct measurement m = { 0 };
 
 		sht40_read(&m);
@@ -143,6 +165,7 @@ int main(void)
 			measurement_led_blink();
 		}
 
+		gatt_hive_poll();
 		k_msleep(MEASURE_INTERVAL_MS);
 	}
 

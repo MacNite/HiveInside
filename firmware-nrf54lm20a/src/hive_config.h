@@ -23,14 +23,17 @@
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.4.0"
+#define HIVEINSIDE_FW_VERSION "0.5.0"
 #endif
 /* Keep the advertised representation numeric and fixed-width.  These values
  * intentionally do not build HIVEINSIDE_FW_VERSION with preprocessor string
  * concatenation: the console continues to use the same plain-string-literal
- * mechanism as the last known-good firmware. */
+ * mechanism as the last known-good firmware.
+ *
+ * 0.5.0 adds the connectable Firmware-over-BLE (OTA) transport, so an updated
+ * node advertises the new version in its scan-response identity record. */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0U
-#define HIVEINSIDE_FW_VERSION_MINOR 4U
+#define HIVEINSIDE_FW_VERSION_MINOR 5U
 #define HIVEINSIDE_FW_VERSION_PATCH 0U
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
@@ -78,6 +81,25 @@
  * measurement has successfully been handed to the Bluetooth controller. */
 #ifndef MEASUREMENT_LED_BLINK_MS
 #define MEASUREMENT_LED_BLINK_MS 100
+#endif
+
+/* ── Firmware-over-BLE (OTA) ────────────────────────────────────────────────
+ *
+ * Ecosystem build flag: OTA is compiled in by default and can be removed with
+ * -DHIVEINSIDE_OTA_ENABLED=0 (mirrors the HiveScale/HiveInside convention).
+ * When enabled, the node adds a connectable GATT server and a second,
+ * connectable advertising set alongside the non-connectable measurement beacon
+ * (see src/gatt_hive.c). Disabling it drops the GATT server and connectable
+ * advertising; the measurement beacon is unaffected. */
+#ifndef HIVEINSIDE_OTA_ENABLED
+#define HIVEINSIDE_OTA_ENABLED 1
+#endif
+
+/* While an OTA transfer is in progress the main loop stops running the
+ * multi-second sensor cycle and polls at this short interval instead, so the
+ * DFU writes and the deferred post-verify reboot are serviced promptly. */
+#ifndef OTA_ACTIVE_POLL_MS
+#define OTA_ACTIVE_POLL_MS 100
 #endif
 
 /* ── Sensor enables ────────────────────────────────────────────────────── */

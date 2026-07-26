@@ -4,11 +4,13 @@ Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
 Zephyr**.
 
 The firmware reads every sensor, prints the readings to the USB serial console,
-runs the **same vibration and acoustic FFT band analysis as the ESP32-C6
-prototype**, and broadcasts each reduced result as a BLE beacon. The 29-byte
-manufacturer-data frame keeps its 26-byte version-1 prefix directly compatible
-with the current HiveHub passive scanner; no BLE connection or wake
-synchronisation is needed.
+runs the vibration and acoustic FFT band analysis, and broadcasts each reduced
+result as a BLE beacon. The 29-byte manufacturer-data frame keeps its 26-byte
+version-1 prefix directly compatible with the current HiveHub passive scanner;
+no BLE connection or wake synchronisation is needed for measurements. A separate
+**connectable** GATT service additionally lets a HiveHub relay push a firmware
+update over BLE (MCUboot dual-slot OTA) without disturbing that measurement
+beacon — see [Firmware-over-BLE (OTA)](#firmware-over-ble-ota) below.
 
 ## What it reads
 
@@ -111,7 +113,7 @@ type.
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.0 | sensor readout over USB
+[HiveInside] nrf54lm20a fw 0.5.0 | USB + HiveHub BLE beacon + OTA
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [SHT40] present on i2c@...
 [ACCEL] LSM6-class IMU at 0x6A on i2c@...
@@ -131,6 +133,59 @@ lights for `MEASUREMENT_LED_BLINK_MS` (default 100 ms). It does not blink for th
 controller's automatic one-second repeats, only when fresh sensor data is
 published.
 
+## Firmware-over-BLE (OTA)
+
+The node can be updated in place: a HiveHub relay opens a BLE GATT session and
+streams a new image into MCUboot's inactive slot, then the node reboots into it.
+This is the last-mile transport of the ecosystem's streaming relay — the backend
+publishes a signed `.bin` + CRC-32, HiveHub downloads it and pumps it into the
+GATT characteristics a chunk at a time. See [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md)
+for the authoritative wire contract.
+
+### Connectable OTA without disturbing the measurement beacon
+
+The measurement beacon (`beacon.c`) must stay a **non-connectable** legacy
+`ADV_SCAN_IND` so HiveHub's passive scanner keeps decoding it unchanged, but the
+device must also be **connectable** for a relay to open a GATT session. The two
+are reconciled with **two advertising sets running at once**:
+
+- `beacon.c` — the non-connectable, scannable measurement beacon (unchanged on
+  air: measurement in the primary packet, name + identity in the scan response).
+- `gatt_hive.c` — a second, connectable `ADV_IND` set advertising the OTA
+  service, from the same stable identity address.
+
+Both are created **without** `BT_LE_ADV_OPT_EXT_ADV`, so each is a legacy PDU on
+air; the extended-advertising API (`CONFIG_BT_EXT_ADV`, `MAX_ADV_SET=2`) is used
+only to host the two sets simultaneously — it does not turn the beacon into an
+extended advertisement. During an active transfer the main loop skips the
+multi-second sensor cycle and never enters deep sleep (`gatt_hive_ota_active()`
+gates `main()`), so the DFU writes and the post-verify reboot are serviced
+promptly while the beacon keeps advertising.
+
+### MCUboot dual-slot DFU
+
+The transfer is backed by MCUboot, not an ESP32-style updater. Each OTA DATA
+write is streamed straight into the secondary slot (`image-1`) via Zephyr's DFU
+image API (`flash_img_init` / `flash_img_buffered_write`), keeping a running
+CRC-32; nothing beyond one flash-write block is buffered. On `END` the device
+verifies the received size and CRC-32 (IEEE 802.3, so it matches the backend and
+HiveHub byte-for-byte), calls `boot_request_upgrade()`, and reboots — MCUboot
+swaps the new image in on the next boot. A dropped or corrupted transfer never
+gets a valid slot trailer, so the node simply stays on its old image.
+
+The nRF54LM20A board devicetree already ships the RRAM partition map — ~62 kB
+`mcuboot`, two ~968 kB app slots (`image-0` / `image-1`), and 36 kB `storage`
+in 2036 kB — so both app slots fit with room to spare and no partition overlay
+is needed. This app is built as an MCUboot-bootable image
+(`CONFIG_BOOTLOADER_MCUBOOT`), so the **MCUboot bootloader must be provisioned
+once** before the app will boot: build it with the `west` + sysbuild path
+(`sysbuild.conf` sets `SB_CONFIG_BOOTLOADER_MCUBOOT=y`), or flash Seeed's
+prebuilt nRF54LM20A MCUboot. PlatformIO builds the application image only.
+
+OTA is compiled in by default and mirrors the ecosystem build-flag convention:
+build with `-DHIVEINSIDE_OTA_ENABLED=0` to drop the GATT server and connectable
+advertising (the measurement beacon is unaffected).
+
 ## Build, flash, monitor
 
 ```bash
@@ -139,6 +194,12 @@ pio run
 pio run -t upload
 pio device monitor
 ```
+
+> **MCUboot required for boot:** because the app is linked for MCUboot slot0,
+> a bare `pio run -t upload` of just this image will not boot until the MCUboot
+> bootloader is present. Provision it once via the `west` + sysbuild build
+> (below) or Seeed's prebuilt bootloader; thereafter `pio run -t upload` (or an
+> OTA push) updates the application slot.
 
 The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (VID:PID
 `0x2886:0x0068`) on the USB-C connector, so no external probe is needed —
@@ -178,6 +239,7 @@ for the SHT40 and battery connections.
 firmware-nrf54lm20a/
 ├── platformio.ini        PlatformIO env (Seeed platform, Zephyr, cmsis-dap upload)
 ├── CMakeLists.txt        west entry point (source list)
+├── sysbuild.conf         west/sysbuild: also build the MCUboot bootloader
 ├── prj.conf              Zephyr config  ─┐ root copies serve west; the zephyr/
 ├── app.overlay           board DT tweaks ─┘ copies serve the PlatformIO builder
 ├── zephyr/               PlatformIO Zephyr application root
@@ -185,8 +247,9 @@ firmware-nrf54lm20a/
 │   ├── prj.conf          identical copy of the root prj.conf
 │   └── app.overlay       identical copy of the root app.overlay
 └── src/
-    ├── main.c            sensor loop + console print + beacon publish
+    ├── main.c            sensor loop + console print + beacon publish + OTA gate
     ├── beacon.[ch]       HiveHub-compatible manufacturer-data advertising
+    ├── gatt_hive.[ch]    connectable GATT OTA service (MCUboot dual-slot DFU)
     ├── hive_config.h     addresses, timing, bands, per-sensor settings
     ├── measurement.h     one sensor snapshot, shared by every module
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
@@ -206,9 +269,10 @@ firmware-nrf54lm20a/
 ## Roadmap
 
 1. **Sensor readout over USB** — done.
-2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
-   prototype) — done, printed to the console alongside the raw readings.
+2. **Vibration + acoustic FFT band analysis** — done, printed to the console
+   alongside the raw readings.
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
 4. **BLE board/firmware identity** (compact scan-response record) — done.
-5. Firmware-over-BLE (MCUboot/DFU).
+5. **Firmware-over-BLE (MCUboot/DFU)** — done; connectable GATT OTA service
+   streams into MCUboot's secondary slot (`gatt_hive.c`).
