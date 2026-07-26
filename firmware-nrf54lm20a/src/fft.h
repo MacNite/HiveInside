@@ -2,11 +2,10 @@
  * fft.h — small in-place radix-2 FFT + band reduction for the vibration and
  * acoustic analyses.
  *
- * Replaces the arduinoFFT dependency of the ESP32-C6 prototype with a
- * dependency-free float implementation (the nRF54's M33 FPU makes float
+ * A dependency-free float implementation (the nRF54's M33 FPU makes float
  * plenty fast for 2048-point transforms). The Hann window, magnitude
- * normalisation and band summation reproduce the prototype's numbers so a
- * band value means the same thing from either board.
+ * normalisation and band summation produce the ecosystem's shared FFT-band
+ * values, so a band means the same thing across HiveScale/HiveHub.
  */
 #pragma once
 

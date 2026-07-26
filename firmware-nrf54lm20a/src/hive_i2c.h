@@ -7,7 +7,7 @@
  * labels, this helper collects every enabled `nordic,nrf-twim` controller
  * from the devicetree, and the sensor modules probe their fixed addresses on
  * each — so the firmware keeps working whichever bus a sensor sits on, and an
- * external LIS3DH wired to the header (prototype-style) is found too.
+ * external LIS3DH wired to the header (for bench use) is found too.
  */
 #pragma once
 

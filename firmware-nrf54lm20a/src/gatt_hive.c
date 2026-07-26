@@ -16,9 +16,10 @@
  *   data     8e8b0011-…  Write/WriteNR raw firmware bytes, in order
  *   status   8e8b0013-…  Read/Notify  state(1) + received(4 LE) + error(1)
  *
- * Backed by MCUboot dual-slot DFU — NOT the ESP32 Update.h flow. The board DTS
- * already provides the mcuboot/slot0/slot1/storage partitions in RRAM, so this
- * module only streams into the secondary slot and requests the swap.
+ * Backed by MCUboot dual-slot DFU via Zephyr's DFU image API — not an
+ * in-place flash-writer. The board DTS already provides the
+ * mcuboot/slot0/slot1/storage partitions in RRAM, so this module only streams
+ * into the secondary slot and requests the swap.
  *
  * ── The connectable-vs-connectionless split ──
  * beacon.c owns a NON-connectable, scannable legacy advertisement carrying the

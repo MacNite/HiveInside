@@ -83,13 +83,13 @@ On Linux, add a udev rule so the probe is accessible without `sudo`
 (`SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"`), then reload rules
 and replug.
 
-The nRF54LM20A firmware currently reads all four sensors (SHT40, IMU,
-microphone, nPM1300 battery) and prints the readout to this serial console; BLE
-transport, FFT analysis, and MCUboot/DFU are later targets not yet present on
-this firmware. See
+The nRF54LM20A firmware reads all four sensors (SHT40, IMU, microphone, nPM1300
+battery), prints the readout to this serial console, broadcasts the HiveHub
+measurement beacon, and supports firmware-over-BLE via MCUboot dual-slot DFU
+(see [`ota-over-ble.md`](ota-over-ble.md)). See
 [`firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md) for the
 readout format, PlatformIO details, the serial-console setup, and the advanced
-`west` alternative.
+`west` + sysbuild alternative (which also builds the MCUboot bootloader).
 
 ### Advanced alternative: nRF Connect SDK / `west`
 
@@ -101,19 +101,10 @@ above unless you have set up that workspace. The board definition lists pyOCD,
 probe-rs, and J-Link as optional supported protocols; they are not the default
 workflow and require a verified compatible probe and board revision.
 
-## Deprecated prototype: XIAO ESP32-C6
+## Firmware-over-BLE (OTA)
 
-The ESP32-C6 PlatformIO project is retained for historical testing and migration
-reference. It remains buildable and retains its OTA implementation, but is not
-the primary firmware path:
-
-```bash
-cd firmware-esp32-c6
-pio run -e c6_gatt_deprecated -t upload
-```
-
-The compatibility environment `c6_gatt` remains available for existing commands
-and CI. The C6 uses its native USB upload flow. If the port is not found, hold
-**BOOT**, tap **RESET**, then release **BOOT** to enter download mode and retry.
-
-See [`ota-over-ble.md`](ota-over-ble.md) for the ESP32-C6 prototype OTA protocol.
+Once the MCUboot bootloader is provisioned, the node can also be updated in place
+over BLE by a HiveHub relay — no cable needed. See
+[`ota-over-ble.md`](ota-over-ble.md) for the wire contract and
+[`../firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md) for the
+`west` + sysbuild build that produces the bootloader.

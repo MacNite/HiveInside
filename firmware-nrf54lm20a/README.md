@@ -24,8 +24,8 @@ and prints a block to the console:
 | Sound | MSM261DGT006 on-board PDM mic | Zephyr `dmic` API, RMS/peak + FFT bands (dBFS) |
 | Battery | nPM1300 PMIC fuel gauge | Zephyr sensor API (`SENSOR_CHAN_GAUGE_VOLTAGE`) |
 
-The accelerometer probe auto-detects the chip by `WHO_AM_I`, so a prototype-style
-external LIS3DH/LIS2DH12 (`0x18`/`0x19`) also works for bench comparisons.
+The accelerometer probe auto-detects the chip by `WHO_AM_I`, so an external
+LIS3DH/LIS2DH12 (`0x18`/`0x19`) also works for bench comparisons.
 
 The FFT bands are the ecosystem-shared bands:
 
@@ -85,8 +85,7 @@ the USB console path.
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
-**HiveInside (nRF54LM20A) — beacon**; do not select the legacy ESP32-C6 GATT
-type.
+**HiveInside (nRF54LM20A) — beacon**.
 
 ### Radio sleep and battery life
 

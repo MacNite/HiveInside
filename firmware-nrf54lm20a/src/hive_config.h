@@ -3,10 +3,10 @@
  * per-sensor settings.
  *
  * This firmware reads every sensor once per cycle and prints the result to the
- * USB serial console. Alongside the plain readings it runs the same vibration
- * and acoustic FFT band analysis as the ESP32-C6 prototype, so a band value
- * means the same thing across the ecosystem. Each completed measurement is
- * also broadcast in the manufacturer-data format consumed by HiveHub.
+ * USB serial console. Alongside the plain readings it runs the ecosystem's
+ * shared vibration and acoustic FFT band analysis, so a band value means the
+ * same thing across HiveScale/HiveHub. Each completed measurement is also
+ * broadcast in the manufacturer-data format consumed by HiveHub.
  *
  * Hardware (see docs/wiring.md):
  *
@@ -129,7 +129,7 @@
  * accel.c auto-detects the sensor on any enabled I²C bus:
  *   - LSM6DS3TR-C / LSM6DS3 / LSM6DSL / LSM6DSO at 0x6A/0x6B (the Sense
  *     module's on-board IMU), or
- *   - LIS3DH / LIS2DH12 at 0x18/0x19 (the prototype's external breakout).
+ *   - LIS3DH / LIS2DH12 at 0x18/0x19 (an external breakout, for bench use).
  * Both are sampled at ~400 Hz into the same magnitude/FFT pipeline.
  */
 
@@ -139,8 +139,8 @@
 #define ACCEL_SAMPLE_COUNT 1024
 #endif
 
-/* Vibration analysis bands (Hz), identical to the ESP32-C6 prototype and
- * HiveScale/HiveHub so a value means the same thing across the ecosystem. */
+/* Vibration analysis bands (Hz), identical to HiveScale/HiveHub so a value
+ * means the same thing across the ecosystem. */
 #define ACC_BAND_SWARM_LO 8      /*   8–30 Hz   Ramsey et al. 2020 pre-swarm */
 #define ACC_BAND_SWARM_HI 30
 #define ACC_BAND_FANNING_LO 30   /*  30–100 Hz  ventilation / fanning */
@@ -172,8 +172,7 @@
 #define MIC_WARMUP_BLOCKS 2
 #endif
 
-/* Acoustic FFT bands (Hz), identical to the ESP32-C6 prototype and
- * HiveScale/HiveHub. */
+/* Acoustic FFT bands (Hz), identical to HiveScale/HiveHub. */
 #define MIC_BAND_SUBBASS_LO 50   /*   50–150 Hz structural / low rumble */
 #define MIC_BAND_SUBBASS_HI 150
 #define MIC_BAND_HUM_LO 150      /*  150–300 Hz normal colony hum */
