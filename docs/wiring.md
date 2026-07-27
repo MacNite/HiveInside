@@ -30,9 +30,3 @@ fuel-gauge functions.
 The current 3D-printable enclosure release is kept in
 [`enclosure/`](../enclosure/). It is sized for the XIAO nRF54LM20A Sense, SHT40,
 and 500 mAh LiPo.
-
-## ESP32-C6 prototype
-
-The deprecated ESP32-C6 prototype has a separate breakout wiring scheme. See
-[`esp32c6-prototype.md`](esp32c6-prototype.md) and
-`firmware-esp32-c6/include/config.h` when working with that historical target.

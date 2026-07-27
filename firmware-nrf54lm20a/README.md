@@ -4,8 +4,8 @@ Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
 Zephyr**.
 
 The firmware reads every sensor, prints the readings to the USB serial console,
-runs the **same vibration and acoustic FFT band analysis as the ESP32-C6
-prototype**, and broadcasts each reduced result as a BLE beacon. The 29-byte
+runs the **vibration and acoustic FFT band analysis** shared across the
+ecosystem, and broadcasts each reduced result as a BLE beacon. The 29-byte
 manufacturer-data frame keeps its 26-byte version-1 prefix directly compatible
 with the current HiveHub passive scanner; no BLE connection or wake
 synchronisation is needed.
@@ -83,7 +83,7 @@ the USB console path.
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
-**HiveInside (nRF54LM20A) — beacon**; do not select the legacy ESP32-C6 GATT
+**HiveInside (nRF54LM20A) — beacon**; do not select a connectable GATT sensor
 type.
 
 ### Radio sleep and battery life
@@ -228,8 +228,8 @@ firmware-nrf54lm20a/
 ## Roadmap
 
 1. **Sensor readout over USB** — done.
-2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
-   prototype) — done, printed to the console alongside the raw readings.
+2. **Vibration + acoustic FFT band analysis** (the shared ecosystem bands) —
+   done, printed to the console alongside the raw readings.
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
 4. **BLE board/firmware identity** (compact scan-response record) — done.

@@ -131,19 +131,75 @@ debugger; with an external probe (below) select the matching runner, e.g.
 and J-Link as optional protocols that require a verified compatible probe and
 board revision.
 
-## Deprecated prototype: XIAO ESP32-C6
+## Building and flashing with nRF Connect for VS Code
 
-The ESP32-C6 PlatformIO project is retained for historical testing and migration
-reference. It remains buildable and retains its OTA implementation, but is not
-the primary firmware path:
+The **nRF Connect for VS Code** extension is the same `west --sysbuild` flow with
+a GUI, and it is the most convenient way to build and flash on the desktop. Once
+you have a **sysbuild** build configuration for the app (its build tree lists two
+images, `mcuboot` and the application), the key point is that **you do not build
+or flash the two images separately** — one build produces both, one flash
+programs both.
+
+### Build (both images at once)
+
+In the **ACTIONS** panel click **Build**. Because the build configuration is
+sysbuild, this runs `west build --sysbuild` and produces:
+
+- `build/mcuboot/zephyr/zephyr.hex` — the bootloader
+- `build/<app>/zephyr/zephyr.signed.hex` / `zephyr.signed.bin` — the **signed
+  application** (the `.signed.bin` is also the OTA payload)
+- `build/merged.hex` — **MCUboot + signed app combined**, the artifact that gets
+  flashed
+
+After changing Kconfig, `prj.conf`, `sysbuild.conf`, or an overlay, do a
+**pristine (clean) build** from the build-action menu — an incremental build does
+not always pick config changes up. Use the application's **Memory report** to
+confirm it fits the 449 KiB slot-0 limit.
+
+### Flash (both images at once)
+
+Click **Flash** in the ACTIONS panel. With a sysbuild build this flashes
+`build/merged.hex` over the connected on-board CMSIS-DAP debugger, so **MCUboot
+and the signed application land together in one operation**. After the first
+merged flash you *can* reflash just the signed application to slot 0 for speed,
+but the merged image is the safe default.
+
+### Getting `west` in a terminal (`west: command not found`)
+
+`west` is installed **inside** the managed nRF Connect SDK toolchain, not on your
+system `PATH`, so a plain terminal reports `west: command not found`. Open a
+terminal that has the toolchain environment activated instead:
+
+- In the extension's **WELCOME** panel, click **Open terminal**, or
+- in the terminal panel, use the **⌄ dropdown next to `+`** and pick the
+  **nRF Connect Toolchain** profile.
+
+Verify with `which west` (it should print a path inside the toolchain), then:
 
 ```bash
-cd firmware-esp32-c6
-pio run -e c6_gatt_deprecated -t upload
+cd firmware-nrf54lm20a
+west flash -d build
 ```
 
-The compatibility environment `c6_gatt` remains available for existing commands
-and CI. The C6 uses its native USB upload flow. If the port is not found, hold
-**BOOT**, tap **RESET**, then release **BOOT** to enter download mode and retry.
+### Troubleshooting: `openocd does not support --dev-id option`
 
-See [`ota-over-ble.md`](ota-over-ble.md) for the ESP32-C6 prototype OTA protocol.
+When a device is selected in **CONNECTED DEVICES**, the extension appends
+`--dev-id <serial>` to `west flash` to target that specific probe. The `jlink`,
+`nrfjprog`, and `pyocd` runners accept `--dev-id`, but the **`openocd` runner
+does not** — and openocd/CMSIS-DAP is the supported runner for this board (see
+above), so switching runners is not the fix. Flash without `--dev-id` instead:
+
+```bash
+cd firmware-nrf54lm20a
+west flash -d build          # from an nRF Connect toolchain terminal
+```
+
+No `--dev-id` is added, and openocd binds to the on-board debugger via its
+VID:PID filter (`0x2886:0x0068`) with a single board connected. To keep using the
+GUI **Flash** button, **deselect** the device in the CONNECTED DEVICES panel
+first so the extension has no serial to pass.
+
+Flashing rides the debugger's SWD/DAP interface while the console rides its CDC
+(`/dev/ttyACM0`) interface — different interfaces on the same USB device — so you
+normally need not close the serial monitor to flash. If openocd reports the
+device is busy, close the terminal on the console port, flash, then reopen it.

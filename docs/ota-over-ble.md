@@ -45,9 +45,8 @@ backend and whose CRC/size are sent in BEGIN.
 
 All OTA characteristics live in the existing custom HiveInside service
 `8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01`. UUIDs and framing must stay in sync with
-HiveScale `firmware/src/ble_sensor.cpp` (the `HI_OTA_*` constants) and the
-deprecated HiveInside ESP32-C6 prototype's
-`firmware-esp32-c6/src/ble_link.cpp` (the `CHR_OTA_*` / `OTA_OP_*` constants).
+HiveScale `firmware/src/ble_sensor.cpp` (the `HI_OTA_*` constants) and the nRF54
+implementation `firmware-nrf54lm20a/src/ota.c`.
 
 | Characteristic | UUID | Props | Payload |
 |---|---|---|---|
@@ -121,15 +120,11 @@ stronger connection guardrail, but requires a future HiveHub bonding change.
 
 ## Build
 
-From `firmware-nrf54lm20a/`, `pio run` builds the PlatformIO target. For an
-explicit upstream Zephyr sysbuild, use `west build -b
+From `firmware-nrf54lm20a/`, `pio run` builds the PlatformIO target as a compile
+check. For a bootable, flashable image use `west build -b
 xiao_nrf54lm20a/nrf54lm20a/cpuapp --sysbuild .`. Release automation must publish
 the generated **signed** application binary, never the raw `zephyr.bin`.
 
-## Deprecated ESP32-C6 reference
-
-The ESP32-C6 `Update.h` implementation and its dual-OTA CSV remain only as a
-protocol/state-machine reference. The primary nRF54 implementation is
-`firmware-nrf54lm20a/src/ota.c`; it streams to the board's MCUboot secondary
-slot, validates size and CRC, requests a test swap, and self-confirms after a
-healthy boot. No placeholder GATT implementation exists.
+The implementation is `firmware-nrf54lm20a/src/ota.c`; it streams to the board's
+MCUboot secondary slot, validates size and CRC, requests a test swap, and
+self-confirms after a healthy boot.
