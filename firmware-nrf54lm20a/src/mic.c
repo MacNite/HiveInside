@@ -2,7 +2,7 @@
  *
  * The nRF54's PDM peripheral filters PDM to 16-bit PCM in hardware, so this
  * module only gathers PCM blocks through Zephyr's dmic API and runs the same
- * dBFS + FFT band analysis as the ESP32-C6 prototype, so a band value means the
+ * dBFS + FFT band analysis shared across the ecosystem, so a band value means the
  * same thing across the ecosystem.
  *
  * The PDM clock only runs between DMIC_TRIGGER_START and _STOP, so the
@@ -50,7 +50,7 @@ static float band_energy_dbfs(const float *mag, float lo_hz, float hi_hz,
 {
 	/* Parseval sum (no /count) so the value reflects real in-band acoustic
 	 * energy and is comparable between bands of different widths — same
-	 * convention as the prototype and HiveScale. */
+	 * convention as HiveScale. */
 	float amp = hive_fft_band_amplitude(mag, MIC_FFT_SAMPLE_COUNT,
 					    (float)MIC_SAMPLE_RATE, lo_hz,
 					    hi_hz, norm, false);

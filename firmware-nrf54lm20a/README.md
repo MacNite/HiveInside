@@ -22,8 +22,8 @@ and prints a block to the console:
 | Sound | MSM261DGT006 on-board PDM mic | Zephyr `dmic` API, RMS/peak + FFT bands (dBFS) |
 | Battery | nPM1300 PMIC fuel gauge | Zephyr sensor API (`SENSOR_CHAN_GAUGE_VOLTAGE`) |
 
-The accelerometer probe auto-detects the chip by `WHO_AM_I`, so a prototype-style
-external LIS3DH/LIS2DH12 (`0x18`/`0x19`) also works for bench comparisons.
+The accelerometer probe auto-detects the chip by `WHO_AM_I`, so an external
+LIS3DH/LIS2DH12 (`0x18`/`0x19`) also works for bench comparisons.
 
 The FFT bands are the ecosystem-shared bands:
 

@@ -63,7 +63,6 @@ value means the same thing across the ecosystem.
 ```
 HiveInside/
 ├── firmware-nrf54lm20a/  Zephyr project (XIAO nRF54LM20A Sense) — primary target
-├── firmware-esp32-c6/    unmaintained early prototype firmware (kept for reference only)
 ├── enclosure/            Current 3D-printable enclosure files
 ├── docs/                 wiring, flashing, OTA, Home Assistant
 └── README.md
