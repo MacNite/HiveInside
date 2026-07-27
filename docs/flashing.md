@@ -2,32 +2,59 @@
 
 ## Primary target: XIAO nRF54LM20A Sense
 
-The default contributor workflow for the final target is **PlatformIO with
-Zephyr**. The project keeps ordinary Zephyr application source and configuration
-files; PlatformIO is the build, upload, and monitor interface.
+This firmware boots **through MCUboot** so it can accept firmware-over-BLE
+updates (see [`ota-over-ble.md`](ota-over-ble.md)). A bootable image is therefore
+MCUboot **plus** a signed application in slot 0. That combined, signed image is
+produced only by a **`west --sysbuild`** build as a single `merged.hex`, and
+that is what gets flashed:
 
 ```bash
-cd firmware-nrf54lm20a
-pio run
-pio run -t upload
-pio device monitor
+# From an nRF Connect SDK / Zephyr workspace that has the XIAO nRF54LM20A
+# board definition available (it ships with the Seeed PlatformIO platform
+# under zephyr/boards/; add it out-of-tree to your west workspace).
+west build --sysbuild -b <board-target> path/to/firmware-nrf54lm20a
+west flash            # flashes build/merged.hex over the on-board debugger
+pio device monitor    # serial console over the same cable (see below)
 ```
+
+The board target is the west name of the Seeed board definition with its
+nRF54L core qualifier (for example `xiao_nrf54lm20a/nrf54lm20a/cpuapp`); use the
+exact name the board's `board.yml` declares.
 
 The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (Seeed
 USB VID:PID `0x2886:0x0068`) connected to the SoC's SWD lines and brought out on
 the USB-C connector. **No external probe is required** — plug the board into USB
-and `pio run -t upload` flashes over SWD through the on-board debugger.
+and `west flash` programs the merged image over SWD through the on-board
+debugger.
 
-This project sets `upload_protocol = cmsis-dap` in `platformio.ini`, which uses
-the board definition's OpenOCD path. That path filters for the on-board
-debugger's fixed VID:PID (`0x2886:0x0068`), so it binds to this board's debugger
-and ignores unrelated CMSIS-DAP dongles.
+### PlatformIO is a compile check, not a flashing path
 
-Do **not** switch this target back to `pyocd`: on the current silicon pyOCD
-aborts during APPROTECT recovery with
-`Memory transfer fault @ 0x00ffc31c-0x00ffc31f`. `cmsis-dap` (OpenOCD) is the
-supported upload path; the board definition also lists `probe-rs` and J-Link for
-contributors who deliberately attach an external probe.
+PlatformIO's Zephyr builder produces a **single application image** — it does
+not run sysbuild, so it never builds MCUboot, signs the app, or emits a merged
+hex (`sysbuild.conf` / `sysbuild/mcuboot.conf` are ignored by `pio run`). Use it
+to check that the application compiles:
+
+```bash
+cd firmware-nrf54lm20a
+pio run
+```
+
+> ⚠️ **Do not `pio run -t upload`.** With MCUboot enabled, PlatformIO links the
+> application at the slot-0 offset (behind an MCUboot header) and flashes it with
+> **nothing at `0x0`**, so the CPU faults before `main()` runs and the device
+> goes completely silent — no serial output, no BLE. This is the classic "builds
+> fine but never boots" symptom. The `upload` target is guarded in
+> `platformio.ini` and refuses to run; flash the merged hex with `west flash`.
+
+The board definition's default runner uses OpenOCD's CMSIS-DAP path, filtered to
+the on-board debugger's fixed VID:PID (`0x2886:0x0068`), so it binds to this
+board's debugger and ignores unrelated CMSIS-DAP dongles. `west flash` uses that
+same on-board debugger.
+
+Do **not** use `pyocd` on the current silicon: it aborts during APPROTECT
+recovery with `Memory transfer fault @ 0x00ffc31c-0x00ffc31f`. CMSIS-DAP
+(OpenOCD) is the supported path; the board definition also lists `probe-rs` and
+J-Link for contributors who deliberately attach an external probe.
 
 ### Serial console over the same USB cable
 
@@ -74,32 +101,35 @@ probe. A spare XIAO RP2040 works as the SWD probe:
    | GND                 | GND    | GND                      |
 
    Power the target from its own USB (or the probe's 3V3 — not both).
-3. Select an upload protocol that targets an external probe, since the default
-   `cmsis-dap`/OpenOCD path is filtered to the on-board debugger's VID:PID and
-   will not bind to the RP2040 (`0x2E8A:0x000C`). Use `upload_protocol = probe-rs`
-   (with the nRF54LM20A target pack installed) and then `pio run -t upload`.
+3. Flash the merged image through the external probe with a matching `west`
+   runner (for example `west flash --runner probe-rs`, with the nRF54LM20A
+   target pack installed). The on-board debugger's OpenOCD path is filtered to
+   its fixed VID:PID and will not bind to the RP2040 (`0x2E8A:0x000C`).
 
 On Linux, add a udev rule so the probe is accessible without `sudo`
 (`SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"`), then reload rules
 and replug.
 
-The nRF54LM20A firmware currently reads all four sensors (SHT40, IMU,
-microphone, nPM1300 battery) and prints the readout to this serial console; BLE
-transport, FFT analysis, and MCUboot/DFU are later targets not yet present on
-this firmware. See
+The nRF54LM20A firmware reads all four sensors (SHT40, IMU, microphone, nPM1300
+battery), prints the readout to this serial console, runs the vibration and
+acoustic FFT band analysis, broadcasts the HiveHub measurement beacon, and
+accepts firmware-over-BLE updates through MCUboot. See
 [`firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md) for the
-readout format, PlatformIO details, the serial-console setup, and the advanced
-`west` alternative.
+readout format, PlatformIO details, and the serial-console setup, and
+[`ota-over-ble.md`](ota-over-ble.md) for the OTA protocol.
 
-### Advanced alternative: nRF Connect SDK / `west`
+### The `west --sysbuild` build is the flashing path
 
-Contributors already using a compatible nRF Connect SDK or Zephyr workspace may
-build the same application with `west`. This is an advanced alternative rather
-than the beginner default; its board definitions and flashing setup depend on
-the SDK workspace in use. Do not substitute it for the PlatformIO instructions
-above unless you have set up that workspace. The board definition lists pyOCD,
-probe-rs, and J-Link as optional supported protocols; they are not the default
-workflow and require a verified compatible probe and board revision.
+Because the firmware boots through MCUboot, the only bootable artifact is the
+merged MCUboot-plus-signed-app image, and only `west --sysbuild` produces it —
+see the top of this document. Build it in an nRF Connect SDK / Zephyr workspace
+that has the XIAO nRF54LM20A board definition available (it ships with the Seeed
+PlatformIO platform under `zephyr/boards/`; add it out-of-tree to your west
+workspace). `west flash` programs `build/merged.hex` over the on-board CMSIS-DAP
+debugger; with an external probe (below) select the matching runner, e.g.
+`west flash --runner jlink`. The board definition also lists pyOCD, probe-rs,
+and J-Link as optional protocols that require a verified compatible probe and
+board revision.
 
 ## Deprecated prototype: XIAO ESP32-C6
 

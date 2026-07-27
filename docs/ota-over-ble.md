@@ -14,19 +14,32 @@ This mirrors the way HiveScale already relays a BeeCounter image over I²C
 
 ## Why a streaming relay
 
-A HiveInside XIAO ESP32-C6 image is well over 1 MB. The HiveScale ESP32 (WROOM, no
-PSRAM) cannot buffer that in RAM, so HiveScale **streams** the HTTPS download
+Firmware images may be too large for the relay to retain alongside its normal
+workload. The HiveScale ESP32 (WROOM, no PSRAM) cannot buffer that in RAM, so
+HiveScale **streams** the HTTPS download
 straight into the GATT characteristics a chunk at a time and never holds the
 whole image. HiveInside likewise buffers nothing: each chunk is written directly
 to its inactive OTA slot. Nothing is committed until the final CRC check passes,
 so a dropped or corrupted transfer always leaves the device on its old image.
 
-## Partition layout
+## Partition layout and release artifact
 
-`firmware-esp32-c6/partitions_4mb_ota_no_fs.csv` gives the C6 two app slots (`ota_0` /
-`ota_1`, ~1.94 MB each). It is selected in `platformio.ini` via
-`board_build.partitions`. Without a dual-OTA table `Update.begin()` has nowhere
-to write the new image. This matches HiveScale's table of the same name.
+The Seeed nRF54LM20A board definition already partitions its 2 MiB RRAM for
+MCUboot: a 64 KiB boot partition, 449 KiB application slot 0, a matching 449 KiB
+slot 1, corresponding non-secure slots, and storage. HiveInside deliberately
+uses that board layout rather than carrying a second, easily-diverged overlay.
+The application must remain below the 449 KiB slot limit.
+
+`sysbuild.conf` enables MCUboot and `CONFIG_BOOTLOADER_MCUBOOT` causes the
+application to be linked with its MCUboot header. Only a `west --sysbuild` build
+produces the signed release artifact `build/<app>/zephyr/zephyr.signed.bin`;
+**that signed file**, including its MCUboot header, is the object uploaded to the
+backend and whose CRC/size are sent in BEGIN.
+
+> PlatformIO's Zephyr builder does **not** run sysbuild — it builds the
+> application alone and never emits a signed image or a bootable merged hex.
+> Build and flash releases with `west` (see [`flashing.md`](flashing.md)); treat
+> `pio run` only as a compile check.
 
 ## GATT protocol
 
@@ -46,9 +59,9 @@ deprecated HiveInside ESP32-C6 prototype's
 
 | Opcode | Bytes | Meaning |
 |---|---|---|
-| `0x01` BEGIN | `0x01 + size(4 LE) + crc32(4 LE)` | `Update.begin(size)`; store expected CRC |
-| `0x03` END | `0x03` | verify size + CRC, `Update.end(true)`, reboot |
-| `0x04` ABORT | `0x04` | `Update.abort()`, stay on current image |
+| `0x01` BEGIN | `0x01 + size(4 LE) + crc32(4 LE)` | initialize slot stream; store expected CRC |
+| `0x03` END | `0x03` | verify size + CRC, request test upgrade, reboot |
+| `0x04` ABORT | `0x04` | cancel transfer; stay on current image |
 
 ### Status `state` byte
 
@@ -81,38 +94,42 @@ HiveScale cannot brick the sensor.
    flow-controlled: the device only sends the ATT write-response after it has
    flashed the chunk.
 4. HiveScale sends END (`otaFinish`) and polls STATUS. The device verifies size +
-   CRC, calls `Update.end(true)` and reports `done`.
-5. `ble::loopOta()` reboots HiveInside into the new slot ~1.5 s later (after the
+   CRC, flushes `flash_img`, requests `BOOT_UPGRADE_TEST`, and reports `done`.
+5. A delayed Zephyr work item reboots HiveInside into the new slot ~1.5 s later (after the
    central has had a chance to read `done`).
 
-During a transfer HiveInside suppresses deep sleep and skips measurement
-(`ble::isOtaActive()` gates `loop()` in `main.cpp`).
+The nRF54 advertises continuously with legacy connectable/scannable `ADV_IND`
+at the same interval used by the former `ADV_SCAN_IND` beacon. Its primary
+manufacturer payload and name+identity scan response are unchanged. A connection
+which does not send BEGIN within six seconds is disconnected, and a short link
+supervision timeout releases a vanished central. `ota_is_active()` gates the
+sensor loop while connected or transferring.
 
-## Build flags
+## Safety and lifecycle
 
-* HiveInside: `-DHIVEINSIDE_OTA_ENABLED=1` (default in `platformio.ini`).
-* HiveScale: `HIVEINSIDE_OTA_ENABLED` (default `1` in its
-  `firmware/include/config.h`).
-  Independent of `HIVEINSIDE_USE_GATT`, which only selects how *measurements* are
-  read — OTA needs only a GATT-client connection.
+DATA callbacks call `flash_img_buffered_write()` synchronously before returning,
+so HiveHub's write-with-response is flash-level flow control. CRC accumulation
+starts at literal zero and chains `crc32_ieee_update()`, matching
+`zlib.crc32`. END checks the exact received size and CRC before marking slot 1
+pending. It then schedules a reset 1.5 seconds later, leaving time to read DONE.
+The new image is a MCUboot **test** upgrade and confirms itself only after sensor,
+Bluetooth, and application initialization; failure to boot causes MCUboot to
+revert automatically.
 
-## Limitations / notes
+Only the three OTA characteristics are exposed. A filter accept list would be a
+stronger connection guardrail, but requires a future HiveHub bonding change.
 
-* The relay needs the device paired (its MAC stored in a HiveScale BLE slot) and
-  reachable during HiveScale's wake window. If HiveInside is asleep, the locate
-  scan may miss it; re-queue or widen its connect/listen window.
-* Transfer time is roughly `image_size / (chunk × writes-per-second)`. With a
-  negotiated MTU of ~247 (chunk ≈ 244 B) and write-with-response flow control,
-  expect a few minutes for a ~1.3 MB image — acceptable for an infrequent update.
-* This is **deprecated** ESP32-C6 prototype firmware. Its Arduino `Update.h`
-  implementation and dual-OTA partition table remain supported for historical
-  testing and migration reference.
-* The primary XIAO nRF54LM20A Sense firmware exposes the OTA characteristics
-  above as a **placeholder**: the UUIDs, opcodes and status framing are in
-  place (`firmware-nrf54lm20a/src/gatt_hive.c`), but MCUboot/DFU is **not**
-  integrated, so the device rejects `BEGIN` at the ATT level. This makes a
-  HiveHub relay fail fast — "OTA BEGIN write failed" — *before* it downloads
-  and streams an image, instead of wasting a multi-minute transfer. The
-  future real implementation keeps this wire contract and replaces the
-  handlers with MCUboot slot writes + CRC verify; it does not use the
-  ESP32-specific `Update.h` flow.
+## Build
+
+From `firmware-nrf54lm20a/`, `pio run` builds the PlatformIO target. For an
+explicit upstream Zephyr sysbuild, use `west build -b
+xiao_nrf54lm20a/nrf54lm20a/cpuapp --sysbuild .`. Release automation must publish
+the generated **signed** application binary, never the raw `zephyr.bin`.
+
+## Deprecated ESP32-C6 reference
+
+The ESP32-C6 `Update.h` implementation and its dual-OTA CSV remain only as a
+protocol/state-machine reference. The primary nRF54 implementation is
+`firmware-nrf54lm20a/src/ota.c`; it streams to the board's MCUboot secondary
+slot, validates size and CRC, requests a test swap, and self-confirms after a
+healthy boot. No placeholder GATT implementation exists.

@@ -133,16 +133,36 @@ published.
 
 ## Build, flash, monitor
 
+This firmware boots **through MCUboot** so it can accept firmware-over-BLE
+updates (see [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md)). A bootable
+image is therefore MCUboot **plus** a signed application in slot 0, produced as
+a single merged hex by a `west --sysbuild` build. PlatformIO's Zephyr builder
+only ever builds and flashes the **application alone**, so it cannot produce a
+bootable image on its own — use it as a compile check, and flash with `west`.
+
 ```bash
+# Compile check only (does NOT produce a bootable image):
 cd firmware-nrf54lm20a
 pio run
-pio run -t upload
-pio device monitor
+
+# Build + flash the real, bootable OTA image (MCUboot + signed app):
+#   run from an nRF Connect SDK / Zephyr workspace that has the XIAO
+#   nRF54LM20A board definition available (it ships with the Seeed platform).
+west build --sysbuild -b <board-target> path/to/firmware-nrf54lm20a
+west flash            # flashes build/merged.hex over the on-board debugger
+
+pio device monitor    # serial console (see below)
 ```
 
+> ⚠️ **Do not `pio run -t upload`.** With MCUboot enabled it flashes the
+> application-only image at the slot-0 offset with nothing at `0x0`, so the CPU
+> faults before `main()` runs and the device goes silent (no serial). The
+> upload target is guarded in `platformio.ini` and will refuse to run for this
+> reason — flash the merged hex with `west flash` instead.
+
 The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (VID:PID
-`0x2886:0x0068`) on the USB-C connector, so no external probe is needed —
-`pio run -t upload` flashes over SWD through it.
+`0x2886:0x0068`) on the USB-C connector, so no external probe is needed — both
+`west flash` and the serial console ride the same USB-C cable through it.
 
 ### Serial console over the same USB cable
 
@@ -176,7 +196,9 @@ for the SHT40 and battery connections.
 
 ```
 firmware-nrf54lm20a/
-├── platformio.ini        PlatformIO env (Seeed platform, Zephyr, cmsis-dap upload)
+├── platformio.ini        PlatformIO env (Seeed platform, Zephyr; compile check only)
+├── sysbuild.conf         enable MCUboot for the west --sysbuild build
+├── sysbuild/mcuboot.conf MCUboot child-image config (small, console off)
 ├── CMakeLists.txt        west entry point (source list)
 ├── prj.conf              Zephyr config  ─┐ root copies serve west; the zephyr/
 ├── app.overlay           board DT tweaks ─┘ copies serve the PlatformIO builder
@@ -211,4 +233,6 @@ firmware-nrf54lm20a/
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
 4. **BLE board/firmware identity** (compact scan-response record) — done.
-5. Firmware-over-BLE (MCUboot/DFU).
+5. **Firmware-over-BLE (MCUboot/DFU)** — implemented (GATT OTA service +
+   streaming into slot 1 + MCUboot test-swap). Requires a `west --sysbuild`
+   build/flash of the merged image; the PlatformIO app-only flow cannot boot it.

@@ -1,0 +1,22 @@
+/*
+ * nRF Connect SDK / west build fixups — applied ONLY by the top-level
+ * CMakeLists.txt (see EXTRA_DTC_OVERLAY_FILE there), never by the PlatformIO
+ * build under zephyr/. Keep board-tree differences that only bite the NCS build
+ * here so the shared app.overlay stays identical to its zephyr/ copy.
+ *
+ * NCS's nRF54LM20A SoC leaves the USBHS wrapper node (nordic,nrf-usbhs-wrapper)
+ * enabled by default. With CONFIG_REGULATOR on — which this firmware needs for
+ * the nPM1300 fuel gauge and LDO control — the nrf_usbhs_wrapper driver builds
+ * itself in (it is `default y` on that node + REGULATOR) and does
+ * DEVICE_DT_GET() on the VREGUSB regulator device that this non-USB
+ * configuration never instantiates, failing the build with
+ * "__device_dts_ord_N undeclared" in nrf_usbhs_wrapper.c.
+ *
+ * This firmware does not use the nRF54's native USB: the on-board SAMD11
+ * CMSIS-DAP debugger owns the USB-C port and bridges uart20 to the host. So
+ * disable the wrapper node; that clears DT_HAS_NORDIC_NRF_USBHS_WRAPPER_ENABLED
+ * and the driver is no longer built.
+ */
+&usbhs_wrapper {
+	status = "disabled";
+};

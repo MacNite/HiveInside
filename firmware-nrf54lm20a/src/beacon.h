@@ -9,3 +9,6 @@ int beacon_init(void);
 /* Encode and publish one measurement. The controller repeats it autonomously. */
 int beacon_publish(const struct measurement *measurement);
 
+/* Maintain the legacy advertising set around a peripheral connection. */
+void beacon_connected(void);
+void beacon_disconnected(void);
