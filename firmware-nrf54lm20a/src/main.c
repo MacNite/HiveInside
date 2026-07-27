@@ -28,6 +28,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/sys/reboot.h>
 #include <zephyr/dfu/mcuboot.h>
 
 #define MEASUREMENT_LED_NODE DT_ALIAS(led0)
@@ -123,6 +124,26 @@ static void print_readout(const struct measurement *m)
 	printk("----------------------------\n");
 }
 
+/* Rollback safety net for MCUboot test images. A healthy image confirms within
+ * the first sensor cycle (seconds after boot); if confirmation has not happened
+ * within this window the image is deemed unhealthy — radio never came up, the
+ * main loop is wedged in a sensor driver, or the trailer write keeps failing —
+ * and we reboot so MCUboot reverts to the previous image. The window is a
+ * generous multiple of a normal first cycle yet well under MEASURE_INTERVAL_MS,
+ * so recovery does not have to wait a full sampling period. */
+#define OTA_CONFIRM_DEADLINE_MS 120000U
+
+static void ota_confirm_deadline_expired(struct k_timer *timer)
+{
+	ARG_UNUSED(timer);
+	/* Only ever armed while running an unconfirmed test image with a staged
+	 * rollback target, so a reset here reverts to the previous known image. */
+	printk("[OTA] health deadline expired without confirmation; rebooting for rollback\n");
+	sys_reboot(SYS_REBOOT_COLD);
+}
+
+K_TIMER_DEFINE(ota_confirm_deadline, ota_confirm_deadline_expired, NULL);
+
 int main(void)
 {
 	bool confirmation_pending;
@@ -144,6 +165,14 @@ int main(void)
 	if (confirmation_pending && beacon_err != 0) {
 		printk("[OTA] image left unconfirmed: Bluetooth init failed (%d)\n",
 		       beacon_err);
+	}
+	/* Arm the rollback deadline only for a genuine test swap (a previous image
+	 * is staged for revert). A directly SWD-flashed image reports swap type
+	 * NONE and has no rollback target, so it is never armed and cannot boot
+	 * loop; it still self-confirms through the normal path below. */
+	if (confirmation_pending && mcuboot_swap_type() == BOOT_SWAP_TYPE_REVERT) {
+		k_timer_start(&ota_confirm_deadline, K_MSEC(OTA_CONFIRM_DEADLINE_MS),
+			      K_NO_WAIT);
 	}
 
 	while (true) {
@@ -171,6 +200,7 @@ int main(void)
 
 				if (confirm_err == 0) {
 					confirmation_pending = false;
+					k_timer_stop(&ota_confirm_deadline);
 					printk("[OTA] test image confirmed after first complete cycle\n");
 				} else {
 					printk("[OTA] image confirmation failed (%d); no retry before reset\n",

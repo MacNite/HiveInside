@@ -125,6 +125,15 @@ regression isolated to the OTA GATT path can therefore still require SWD recover
 Confirmation is attempted at most once per boot so a persistent trailer-write
 failure cannot cause periodic flash writes indefinitely.
 
+To bound how long an unhealthy image can run before it rolls back, a test image
+arms a confirmation deadline at boot (`OTA_CONFIRM_DEADLINE_MS`, 120 s). If it has
+not confirmed within that window — radio never came up, the main loop wedged in a
+sensor driver, or the trailer write kept failing — it reboots so MCUboot reverts
+to the previous image, rather than running unconfirmed until the next unrelated
+reset (up to a full `MEASURE_INTERVAL_MS` away). The deadline is armed only when
+MCUboot reports a real test swap (`BOOT_SWAP_TYPE_REVERT`); a directly
+SWD-flashed image has no rollback target, is never armed, and cannot boot loop.
+
 Only the three OTA characteristics are exposed. A filter accept list would be a
 stronger connection guardrail, but requires a future HiveHub bonding change.
 
