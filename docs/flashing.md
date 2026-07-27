@@ -17,6 +17,15 @@ west flash            # flashes build/merged.hex over the on-board debugger
 pio device monitor    # serial console over the same cable (see below)
 ```
 
+Use a pristine build when changing the board, partition layout, bootloader, or
+signing configuration (`west build --pristine --sysbuild ...`). Before treating
+the result as a release, inspect the generated partition report and retain both
+artifacts for their distinct purposes: `merged.hex` is the SWD factory/recovery
+image, while the application's `zephyr.signed.bin` is the BLE OTA payload. Never
+send `merged.hex` or the unsigned `zephyr.bin` through the OTA characteristic.
+See the production-key, release-test, and recovery checklist in
+[`ota-over-ble.md`](ota-over-ble.md#production-release-and-recovery-checklist).
+
 The board target is the west name of the Seeed board definition with its
 nRF54L core qualifier (for example `xiao_nrf54lm20a/nrf54lm20a/cpuapp`); use the
 exact name the board's `board.yml` declares.

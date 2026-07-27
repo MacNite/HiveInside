@@ -125,18 +125,22 @@ static void print_readout(const struct measurement *m)
 
 int main(void)
 {
+	bool image_confirmed = false;
+
 	printk("\n[HiveInside] %s fw %s | USB + HiveHub BLE beacon\n",
 	       HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
 
 	power_init();
 	measurement_led_init();
-	(void)beacon_init();
+	int beacon_err = beacon_init();
 	ota_init();
-	/* A test-swapped image confirms only after core application bring-up. If
-	 * it cannot reach here, MCUboot will revert it on the following reset. */
-	int confirm_err = boot_write_img_confirmed();
-	if (confirm_err != 0) {
-		printk("[OTA] image confirmation returned %d\n", confirm_err);
+	/* Do not confirm a test image merely because main() was reached. Wait until
+	 * one complete sensor cycle has run and Bluetooth has successfully published
+	 * it; otherwise a regression in either path must remain eligible for MCUboot
+	 * rollback on the next reset. */
+	if (beacon_err != 0) {
+		printk("[OTA] image left unconfirmed: Bluetooth init failed (%d)\n",
+		       beacon_err);
 	}
 
 	while (true) {
@@ -154,6 +158,17 @@ int main(void)
 		print_readout(&m);
 		if (beacon_publish(&m) == 0) {
 			measurement_led_blink();
+			if (!image_confirmed) {
+				int confirm_err = boot_write_img_confirmed();
+
+				if (confirm_err == 0) {
+					image_confirmed = true;
+					printk("[OTA] image confirmed after first complete cycle\n");
+				} else {
+					printk("[OTA] image confirmation returned %d\n",
+					       confirm_err);
+				}
+			}
 		}
 
 		k_msleep(MEASURE_INTERVAL_MS);

@@ -112,9 +112,12 @@ so HiveHub's write-with-response is flash-level flow control. CRC accumulation
 starts at literal zero and chains `crc32_ieee_update()`, matching
 `zlib.crc32`. END checks the exact received size and CRC before marking slot 1
 pending. It then schedules a reset 1.5 seconds later, leaving time to read DONE.
-The new image is a MCUboot **test** upgrade and confirms itself only after sensor,
-Bluetooth, and application initialization; failure to boot causes MCUboot to
-revert automatically.
+The new image is a MCUboot **test** upgrade. It confirms itself only after one
+complete sensor-read cycle and a successful BLE measurement publication; a
+failure before that point leaves the image unconfirmed so MCUboot can revert it
+on the next reset. A test image does not revert merely because a peripheral is
+absent: individual sensor drivers deliberately degrade to `n/a`, while successful
+BLE publication is the health gate.
 
 Only the three OTA characteristics are exposed. A filter accept list would be a
 stronger connection guardrail, but requires a future HiveHub bonding change.
@@ -125,6 +128,31 @@ From `firmware-nrf54lm20a/`, `pio run` builds the PlatformIO target. For an
 explicit upstream Zephyr sysbuild, use `west build -b
 xiao_nrf54lm20a/nrf54lm20a/cpuapp --sysbuild .`. Release automation must publish
 the generated **signed** application binary, never the raw `zephyr.bin`.
+
+## Production release and recovery checklist
+
+The SDK's default MCUboot development key is suitable only for bring-up. It is
+publicly known and therefore provides image formatting, **not production
+authenticity**. Before deploying devices, provision a project-owned signing key,
+configure both MCUboot and sysbuild signing to use it, keep the private key out of
+the repository and build logs, and archive the matching public key and recovery
+procedure. Changing the key later requires an SWD recovery image whose MCUboot
+contains the new public key.
+
+For every release:
+
+1. Start from a clean `west build --pristine --sysbuild ...` build and retain the
+   build manifest/configuration alongside the artifact.
+2. Check the generated partition report and the signed image size against the
+   actual secondary-slot capacity; do not rely only on the nominal 449 KiB figure.
+3. Compute the backend size and CRC from the exact `zephyr.signed.bin` that is
+   uploaded (never from `zephyr.bin` or `merged.hex`).
+4. Flash `merged.hex` onto a representative board over SWD, perform a complete
+   BLE OTA with the release artifact, and verify the version after reboot.
+5. Run a rollback test with an intentionally non-confirming test application and
+   keep an SWD mass-erase/reflash path available. BLE OTA cannot recover a device
+   whose bootloader, signing key, partition layout, or radio/application startup
+   is broken.
 
 ## Deprecated ESP32-C6 reference
 
