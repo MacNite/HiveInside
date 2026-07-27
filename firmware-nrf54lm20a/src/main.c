@@ -125,20 +125,23 @@ static void print_readout(const struct measurement *m)
 
 int main(void)
 {
-	bool image_confirmed = false;
+	bool confirmation_pending;
+	bool confirmation_attempted = false;
+	int beacon_err;
 
 	printk("\n[HiveInside] %s fw %s | USB + HiveHub BLE beacon\n",
 	       HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
 
 	power_init();
 	measurement_led_init();
-	int beacon_err = beacon_init();
+	beacon_err = beacon_init();
 	ota_init();
+	confirmation_pending = !boot_is_img_confirmed();
 	/* Do not confirm a test image merely because main() was reached. Wait until
 	 * one complete sensor cycle has run and Bluetooth has successfully published
 	 * it; otherwise a regression in either path must remain eligible for MCUboot
 	 * rollback on the next reset. */
-	if (beacon_err != 0) {
+	if (confirmation_pending && beacon_err != 0) {
 		printk("[OTA] image left unconfirmed: Bluetooth init failed (%d)\n",
 		       beacon_err);
 	}
@@ -158,14 +161,19 @@ int main(void)
 		print_readout(&m);
 		if (beacon_publish(&m) == 0) {
 			measurement_led_blink();
-			if (!image_confirmed) {
+			if (confirmation_pending && !confirmation_attempted &&
+			    !ota_is_active()) {
+				/* Make at most one trailer-write attempt per boot. A persistent
+				 * flash error must not cause periodic writes for the lifetime of
+				 * the device; leaving the image unconfirmed preserves rollback. */
+				confirmation_attempted = true;
 				int confirm_err = boot_write_img_confirmed();
 
 				if (confirm_err == 0) {
-					image_confirmed = true;
-					printk("[OTA] image confirmed after first complete cycle\n");
+					confirmation_pending = false;
+					printk("[OTA] test image confirmed after first complete cycle\n");
 				} else {
-					printk("[OTA] image confirmation returned %d\n",
+					printk("[OTA] image confirmation failed (%d); no retry before reset\n",
 					       confirm_err);
 				}
 			}

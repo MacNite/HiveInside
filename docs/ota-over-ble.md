@@ -119,6 +119,12 @@ on the next reset. A test image does not revert merely because a peripheral is
 absent: individual sensor drivers deliberately degrade to `n/a`, while successful
 BLE publication is the health gate.
 
+This health gate proves that the image can boot, sample, and advertise; it cannot
+prove that a future central can discover and complete another OTA session. A
+regression isolated to the OTA GATT path can therefore still require SWD recovery.
+Confirmation is attempted at most once per boot so a persistent trailer-write
+failure cannot cause periodic flash writes indefinitely.
+
 Only the three OTA characteristics are exposed. A filter accept list would be a
 stronger connection guardrail, but requires a future HiveHub bonding change.
 
