@@ -198,7 +198,8 @@ for the SHT40 and battery connections.
 firmware-nrf54lm20a/
 ├── platformio.ini        PlatformIO env (Seeed platform, Zephyr; compile check only)
 ├── sysbuild.conf         enable MCUboot for the west --sysbuild build
-├── sysbuild/mcuboot.conf MCUboot child-image config (small, console off)
+├── sysbuild/mcuboot.conf MCUboot child-image config (small, console off, board
+│                         power-management drivers off — see the file's comments)
 ├── CMakeLists.txt        west entry point (source list)
 ├── prj.conf              Zephyr config  ─┐ root copies serve west; the zephyr/
 ├── app.overlay           board DT tweaks ─┘ copies serve the PlatformIO builder

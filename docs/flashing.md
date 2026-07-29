@@ -140,6 +140,23 @@ debugger; with an external probe (below) select the matching runner, e.g.
 and J-Link as optional protocols that require a verified compatible probe and
 board revision.
 
+#### If the MCUboot image fails to link
+
+A `--sysbuild` build that dies while linking `mcuboot/zephyr/zephyr_pre0.elf`
+with `undefined reference to z_impl_k_mutex_lock` / `k_work_submit` /
+`z_impl_k_usleep` (usually preceded by the Kconfig warning `I2C ... was assigned
+the value 'n' but got the value 'y'`) is the board's power-management drivers
+leaking into the bootloader: MCUboot is built single-threaded on Nordic SoCs,
+but the XIAO board tree enables `CONFIG_REGULATOR` plus the `power_en` regulator
+and the nPM1300 on a bit-banged I²C bus for *every* sysbuild image, and those
+drivers need the kernel mutex/work-queue APIs. `sysbuild/mcuboot.conf` turns
+`CONFIG_REGULATOR` and `CONFIG_MFD` off for the bootloader image to prevent
+this; if you see the error, check that fragment is being picked up (it must sit
+next to the application, i.e. `firmware-nrf54lm20a/sysbuild/mcuboot.conf`) and
+rebuild with `--pristine`. The failure is not host- or toolchain-specific, and
+neither a plain `west build` nor `pio run` reproduces it — they never build
+MCUboot.
+
 ## Deprecated prototype: XIAO ESP32-C6
 
 The ESP32-C6 PlatformIO project is retained for historical testing and migration
