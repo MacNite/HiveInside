@@ -218,6 +218,25 @@ Two ways forward:
   changes the board — this repo's `ncs_fixups.overlay` already exists because the
   two trees do not always agree.
 
+Two failure modes of the VS Code route are worth recognising, because neither is
+caused by the board files:
+
+* **"Loading boards…" that never finishes, or an error about an unrelated SoC**
+  (`The SoC stm32c5a3xx was not found in the SDK`). Adding a board root makes the
+  extension re-scan every board it knows about, and it trips over its own stale
+  board/SoC cache — the message says as much ("could be a result of the `west
+  update` of the SDK that cleared the SoC cache"). Restart VS Code, or have the
+  extension regenerate the cache; the STM32 name is noise, not a hint.
+* **A build that fails "because of the Bare Metal SDK" after switching the SDK
+  in the dialog.** The selected SDK is baked into the build configuration and
+  into `build/CMakeCache.txt` when it is first created. Changing the dropdown
+  does not retarget an existing configuration — delete the build configuration
+  and its `build/` directory, then create it again against the RTOS-based SDK.
+
+None of this affects the command line. `west build --sysbuild` from a plain
+`zephyrproject` workspace is the reference path and stays the quickest way to a
+known-good image.
+
 #### If the MCUboot image fails to link
 
 A `--sysbuild` build that dies while linking `mcuboot/zephyr/zephyr_pre0.elf`
