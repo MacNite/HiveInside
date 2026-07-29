@@ -177,6 +177,47 @@ board revision.
 > that `bm_nrf54lm20dk` is Nordic's nRF54LM20 **DK**, a different board from the
 > Seeed XIAO nRF54LM20A Sense this firmware targets.
 
+#### The board target is missing from an nRF Connect SDK workspace
+
+`xiao_nrf54lm20a` ships in **upstream Zephyr**. The nRF Connect SDK uses its own
+Zephyr fork (`nrfconnect/sdk-zephyr`), which does **not** carry it — not on
+`main`, `v3.2-branch` or `v3.1-branch` — so it never appears in the VS Code
+extension's board-target dropdown, however new the SDK is. Only Nordic's own
+`nrf54lm20dk` is there. Nothing is broken; the definition is simply absent.
+
+Two ways forward:
+
+* **Build against upstream Zephyr** (a plain `zephyrproject` west workspace).
+  This is the path the rest of this document describes and needs no extra setup.
+* **Add the board out-of-tree to the NCS workspace.** Copy the whole
+  `boards/seeed/xiao_nrf54lm20a/` directory out of upstream Zephyr into a board
+  root of your own, keeping the `boards/<vendor>/<board>/` structure:
+
+  ```
+  my-boards/
+  └── boards/seeed/xiao_nrf54lm20a/     ← the upstream directory, unmodified
+  ```
+
+  Then point the build at the directory that *contains* `boards/` — not at the
+  board directory itself:
+
+  ```bash
+  west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+    path/to/firmware-nrf54lm20a -- -DBOARD_ROOT=/abs/path/to/my-boards
+  ```
+
+  In the VS Code extension the same value goes in the nRF Connect **board roots**
+  setting, after which the target shows up in the dropdown. Use an absolute path:
+  sysbuild resolves relative `*_ROOT` variables against the application
+  directory, which is rarely what you mean.
+
+  The copy is self-contained: `seeed_xiao_connector.dtsi` lives inside the board
+  directory, and the SoC-level includes it pulls in
+  (`nordic/nrf54lm20a_cpuapp.dtsi`, `vendor/nordic/nrf54lm20_a_b_cpuapp_partition.dtsi`)
+  are both present in `sdk-zephyr`. Expect to re-sync the copy whenever upstream
+  changes the board — this repo's `ncs_fixups.overlay` already exists because the
+  two trees do not always agree.
+
 #### If the MCUboot image fails to link
 
 A `--sysbuild` build that dies while linking `mcuboot/zephyr/zephyr_pre0.elf`
