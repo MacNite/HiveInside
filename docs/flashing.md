@@ -344,9 +344,72 @@ application signed the old way. Set signing options in `sysbuild.conf` as
 `SB_CONFIG_*` instead, so both images move together.
 
 If (a) passes but (b) fails, the image is good and the programming step is at
-fault: re-flash with `west flash --domain firmware-nrf54lm20a --erase`, and if
-that does not help try a different runner (`--runner jlink` with an external
-probe).
+fault — see the next section, which is the known cause on this board.
+
+#### Known bug: the OpenOCD RRAM loader drops the last partial write
+
+**Symptom.** `imgtool verify` says the image is fine, but `west flash --verify`
+reports a handful of `0xff` bytes at the very end of the image:
+
+```
+Error: checksum mismatch - attempting binary compare
+diff 0 address 0x00035130. Was 0xff instead of 0xf3
+...
+No more differences found.
+```
+
+**Cause.** The board's flash loader in
+`boards/seeed/xiao_nrf54lm20a/support/openocd.cfg` is:
+
+```tcl
+proc nrf54lm20a-load {file} {
+    mww 0x5004e500 0x101
+    load_image $file
+}
+```
+
+`0x5004e500` is `RRAMC.CONFIG`; `0x101` sets `WEN=1` **and a one-line (16-byte)
+write buffer**. `load_image` then writes the image, and the proc stops — it never
+commits the buffer. The nRF54L RRAM controller only writes a 128-bit line out
+when that line fills, so whatever does not reach a 16-byte boundary is left in
+the buffer and never lands in RRAM.
+
+The application image is 151864 bytes; `151864 mod 16 = 8`, so the final **8**
+bytes — the tail of the signature TLV — are silently dropped. MCUboot then reads
+a truncated signature and reports `E: Image in the primary slot is not valid!`.
+Zephyr's own RRAM driver gets this right: `soc_flash_nrf_rram.c` has a
+`commit_changes()` that triggers `NRF_RRAMC_TASK_COMMIT_WRITEBUF` whenever the
+write length is not a multiple of the buffer size. The OpenOCD script has no
+equivalent. This is upstream board support, not a HiveInside bug, and it affects
+any image whose length is not 16-byte aligned.
+
+**Fix.** Disable the write buffer in that proc — one character, and it needs no
+register offsets:
+
+```tcl
+proc nrf54lm20a-load {file} {
+    mww 0x5004e500 0x1     ;# WEN=1, write-buffer size 0 -> every write commits
+    load_image $file
+}
+```
+
+Flashing gets slower, and correct. Keeping the buffer means flushing it after
+`load_image`, either by triggering `TASKS_COMMITWRITEBUF` or by reading back the
+last written byte — the Product Specification commits a line on "a read
+operation from a 128-bit word line in the buffer that has already been written
+to", which is the fallback Zephyr's driver uses when the commit task is
+unavailable.
+
+**Re-flash both images afterwards**, not just the application. MCUboot is written
+in three sections of 34636, 2720 and 60 bytes; the first and last are also not
+16-byte aligned, so up to 12 bytes are missing from each. It boots regardless —
+those bytes happen not to be on any path that matters — but the bootloader on the
+device is not the bootloader that was built. Confirm with:
+
+```bash
+west flash --domain mcuboot --verify
+west flash --domain firmware-nrf54lm20a --verify
+```
 
 ## Deprecated prototype: XIAO ESP32-C6
 
