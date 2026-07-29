@@ -218,7 +218,64 @@ through it in this order:
    result "will not be bootable by MCUboot unless it is signed manually", and
    `west flash` then programs an unsigned image that MCUboot silently rejects.
    Confirm `build/firmware-nrf54lm20a/zephyr/zephyr.signed.hex` exists and that
-   the configure log names the same key file for both images.
+   the configure log names the same key file for both images. See the next
+   section for how to tell the two apart.
+
+#### `E: Image in the primary slot is not valid!`
+
+With the bootloader console enabled (step 3 above) a rejected application looks
+like this:
+
+```
+I: Starting bootloader
+I: Primary image: magic=unset, swap_type=0x1, copy_done=0x3, image_ok=0x3
+I: Boot source: none
+E: Image in the primary slot is not valid!
+E: Unable to find bootable image
+```
+
+`magic=unset` and `image_ok=0x3` are **not** the problem — those describe the
+image *trailer*, which an SWD-flashed image legitimately does not have, and
+MCUboot boots such an image happily. The failure is `boot_validate_slot()`
+rejecting slot 0, which has exactly two causes: the header/signature does not
+verify against the key built into the bootloader, or the bytes on the chip are
+not the bytes `imgtool` produced. Two commands separate them:
+
+```bash
+# (a) Is the image itself validly signed with the bootloader's key?
+#     Default sysbuild config uses MCUboot's RSA-2048 development key.
+cd <west-topdir>
+python bootloader/mcuboot/scripts/imgtool.py verify \
+  -k bootloader/mcuboot/root-rsa-2048.pem \
+  <build>/firmware-nrf54lm20a/zephyr/zephyr.signed.bin
+
+# (b) Do the bytes on the chip match the hex? (openocd runner only)
+west flash --domain firmware-nrf54lm20a --verify
+```
+
+If (a) fails, the build is at fault — compare the two images' Kconfig, which is
+where a signing-type or key mismatch shows up:
+
+```bash
+grep -E 'MCUBOOT_SIGNATURE_KEY_FILE|MCUBOOT_GENERATE_UNSIGNED_IMAGE|ROM_START_OFFSET|MCUBOOT_BOOTLOADER_MODE' \
+  <build>/firmware-nrf54lm20a/zephyr/.config
+grep -E 'BOOT_SIGNATURE_TYPE|BOOT_SIGNATURE_KEY_FILE|BOOT_VALIDATE_SLOT0|BOOT_SWAP|SINGLE_APPLICATION_SLOT' \
+  <build>/mcuboot/zephyr/.config
+```
+
+The bootloader and the application must agree on the signature type and the key,
+and on the MCUboot mode. Sysbuild derives both sides from the same
+`SB_CONFIG_BOOT_SIGNATURE_TYPE_*` / `SB_CONFIG_BOOT_SIGNATURE_KEY_FILE` (default:
+RSA with `$(ZEPHYR_MCUBOOT_MODULE_DIR)/root-rsa-2048.pem`), so a mismatch means
+something overrode one side — most often a `CONFIG_BOOT_*` line added to
+`sysbuild/mcuboot.conf`, which changes only the bootloader and leaves the
+application signed the old way. Set signing options in `sysbuild.conf` as
+`SB_CONFIG_*` instead, so both images move together.
+
+If (a) passes but (b) fails, the image is good and the programming step is at
+fault: re-flash with `west flash --domain firmware-nrf54lm20a --erase`, and if
+that does not help try a different runner (`--runner jlink` with an external
+probe).
 
 ## Deprecated prototype: XIAO ESP32-C6
 
