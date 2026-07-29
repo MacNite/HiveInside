@@ -149,7 +149,8 @@ pio run
 #   run from an nRF Connect SDK / Zephyr workspace that has the XIAO
 #   nRF54LM20A board definition available (it ships with the Seeed platform).
 west build --sysbuild -b <board-target> path/to/firmware-nrf54lm20a
-west flash            # flashes build/merged.hex over the on-board debugger
+west flash            # programs MCUboot + the signed app over the on-board debugger
+                      # (run it against the TOP-LEVEL sysbuild build directory)
 
 pio device monitor    # serial console (see below)
 ```
@@ -168,15 +169,23 @@ The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (VID:PID
 
 The SAMD11 also exposes a **USB CDC ACM port** bridged to the SoC's `uart20`, so
 `printk()` output appears on the host over the same USB-C cable used for
-flashing. It runs at **115200 8N1** and enumerates on Linux as `/dev/ttyACM0`.
+flashing. It runs at **115200 8N1** and enumerates on Linux as `/dev/ttyACM0`
+and on macOS as `/dev/cu.usbmodem*` (run `pio device list` to get the exact
+name — there is no `/dev/ttyACM0` on macOS).
 
 ```bash
-pio device monitor -p /dev/ttyACM0 -b 115200
+pio device monitor -p /dev/ttyACM0 -b 115200          # Linux
+pio device monitor -p /dev/cu.usbmodemXXXX -b 115200  # macOS
 ```
 
 The boot banner prints once at reset; press **RST** with the monitor connected
 to see it and the first readout. The console is a plain polled UART, so the
 firmware runs whether or not a terminal is attached.
+
+An unconnected sensor never silences the console — the banner comes before any
+sensor access and a missing SHT40 just prints `climate : n/a`. If there is no
+output *and* no BLE advertising, the application is not running at all; see
+"Device is silent after flashing" in [`../docs/flashing.md`](../docs/flashing.md).
 
 ### Microphone bring-up
 
