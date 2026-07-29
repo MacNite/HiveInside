@@ -4,25 +4,40 @@
 
 This firmware boots **through MCUboot** so it can accept firmware-over-BLE
 updates (see [`ota-over-ble.md`](ota-over-ble.md)). A bootable image is therefore
-MCUboot **plus** a signed application in slot 0. That combined, signed image is
-produced only by a **`west --sysbuild`** build as a single `merged.hex`, and
-that is what gets flashed:
+MCUboot **plus** a signed application in slot 0. Only a **`west --sysbuild`**
+build produces both, and both must reach the chip:
 
 ```bash
 # From an nRF Connect SDK / Zephyr workspace that has the XIAO nRF54LM20A
 # board definition available (it ships with the Seeed PlatformIO platform
 # under zephyr/boards/; add it out-of-tree to your west workspace).
 west build --sysbuild -b <board-target> path/to/firmware-nrf54lm20a
-west flash            # flashes build/merged.hex over the on-board debugger
+west flash            # programs every sysbuild image over the on-board debugger
 pio device monitor    # serial console over the same cable (see below)
 ```
 
+`west flash` run against the **top-level** sysbuild build directory reads
+`build/domains.yaml` and programs every image in flash order — MCUboot at `0x0`
+and the *signed* application at slot 0 (`zephyr.signed.hex`; Zephyr's
+`cmake/mcuboot.cmake` repoints the runner at it). Flashing a single image, or
+flashing `build/firmware-nrf54lm20a/zephyr/zephyr.hex` by hand, leaves the
+device unbootable — see "Device is silent after flashing" below.
+
+> **`merged.hex` is an nRF Connect SDK artifact, not an upstream Zephyr one.**
+> NCS's sysbuild concatenates the images into `build/merged.hex`; a plain
+> `zephyrproject` workspace does **not** create that file, and it is not needed —
+> `west flash` handles the multi-image case on its own. Where this document and
+> [`ota-over-ble.md`](ota-over-ble.md) refer to `merged.hex` as the SWD
+> factory/recovery image, that applies to NCS builds; on upstream Zephyr the
+> equivalent is "everything `west flash` programs".
+
 Use a pristine build when changing the board, partition layout, bootloader, or
 signing configuration (`west build --pristine --sysbuild ...`). Before treating
-the result as a release, inspect the generated partition report and retain both
-artifacts for their distinct purposes: `merged.hex` is the SWD factory/recovery
-image, while the application's `zephyr.signed.bin` is the BLE OTA payload. Never
-send `merged.hex` or the unsigned `zephyr.bin` through the OTA characteristic.
+the result as a release, inspect the generated partition report and retain the
+artifacts for their distinct purposes: the full-flash image is for SWD
+factory/recovery, while the application's `zephyr.signed.bin` is the BLE OTA
+payload. Never send a full-flash image or the unsigned `zephyr.bin` through the
+OTA characteristic.
 See the production-key, release-test, and recovery checklist in
 [`ota-over-ble.md`](ota-over-ble.md#production-release-and-recovery-checklist).
 
@@ -81,6 +96,17 @@ udevadm info -q property -n /dev/ttyACM0 | grep -E 'ID_VENDOR_ID|ID_MODEL|ID_SER
 pio device monitor -p /dev/ttyACM0 -b 115200
 ```
 
+On **macOS** the same port appears as `/dev/cu.usbmodem*` — there is no
+`/dev/ttyACM0`, so a copied-and-pasted `-p /dev/ttyACM0` fails or silently binds
+nothing. List the ports first and pick the Seeed one; note that the board
+presents both a CDC ACM data port and the CMSIS-DAP interface, so more than one
+entry can appear:
+
+```bash
+pio device list                     # or: ls /dev/cu.usbmodem*
+pio device monitor -p /dev/cu.usbmodemXXXX -b 115200
+```
+
 The startup banner
 (`[HiveInside] nrf54lm20a fw <version> | sensor readout over USB`) prints **once
 at boot**, followed by a readout block every few seconds, so if the monitor is
@@ -129,16 +155,261 @@ readout format, PlatformIO details, and the serial-console setup, and
 
 ### The `west --sysbuild` build is the flashing path
 
-Because the firmware boots through MCUboot, the only bootable artifact is the
-merged MCUboot-plus-signed-app image, and only `west --sysbuild` produces it —
-see the top of this document. Build it in an nRF Connect SDK / Zephyr workspace
-that has the XIAO nRF54LM20A board definition available (it ships with the Seeed
-PlatformIO platform under `zephyr/boards/`; add it out-of-tree to your west
-workspace). `west flash` programs `build/merged.hex` over the on-board CMSIS-DAP
-debugger; with an external probe (below) select the matching runner, e.g.
+Because the firmware boots through MCUboot, a bootable device needs both the
+bootloader and the signed application, and only `west --sysbuild` produces them
+— see the top of this document. Build it in an nRF Connect SDK / Zephyr
+workspace that has the XIAO nRF54LM20A board definition available (it ships with
+the Seeed PlatformIO platform under `zephyr/boards/`; add it out-of-tree to your
+west workspace). `west flash` programs every sysbuild image over the on-board
+CMSIS-DAP debugger; with an external probe (below) select the matching runner, e.g.
 `west flash --runner jlink`. The board definition also lists pyOCD, probe-rs,
 and J-Link as optional protocols that require a verified compatible probe and
 board revision.
+
+> ⚠️ **Not** the "nRF Connect SDK **Bare Metal**" option (`nrf-bm`, board
+> targets prefixed `bm_`). That is a separate, RTOS-free SDK line built on the
+> SoftDevice and raw nrfx drivers — it has no Zephyr kernel, no Zephyr device
+> model or devicetree-driven peripherals, and no Zephyr Bluetooth host. This
+> firmware is a Zephyr application (`zephyr/kernel.h`, `zephyr/bluetooth/*`,
+> `zephyr/drivers/{regulator,i2c,sensor,gpio}.h`, `zephyr/audio/dmic.h`,
+> `zephyr/dfu/mcuboot.h`, plus the board overlays), so it cannot build there at
+> any version. Use upstream Zephyr or the RTOS-based nRF Connect SDK. Note also
+> that `bm_nrf54lm20dk` is Nordic's nRF54LM20 **DK**, a different board from the
+> Seeed XIAO nRF54LM20A Sense this firmware targets.
+
+#### The board target is missing from an nRF Connect SDK workspace
+
+`xiao_nrf54lm20a` ships in **upstream Zephyr**. The nRF Connect SDK uses its own
+Zephyr fork (`nrfconnect/sdk-zephyr`), which does **not** carry it — not on
+`main`, `v3.2-branch` or `v3.1-branch` — so it never appears in the VS Code
+extension's board-target dropdown, however new the SDK is. Only Nordic's own
+`nrf54lm20dk` is there. Nothing is broken; the definition is simply absent.
+
+Two ways forward:
+
+* **Build against upstream Zephyr** (a plain `zephyrproject` west workspace).
+  This is the path the rest of this document describes and needs no extra setup.
+* **Add the board out-of-tree to the NCS workspace.** Copy the whole
+  `boards/seeed/xiao_nrf54lm20a/` directory out of upstream Zephyr into a board
+  root of your own, keeping the `boards/<vendor>/<board>/` structure:
+
+  ```
+  my-boards/
+  └── boards/seeed/xiao_nrf54lm20a/     ← the upstream directory, unmodified
+  ```
+
+  Then point the build at the directory that *contains* `boards/` — not at the
+  board directory itself:
+
+  ```bash
+  west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+    path/to/firmware-nrf54lm20a -- -DBOARD_ROOT=/abs/path/to/my-boards
+  ```
+
+  In the VS Code extension the same value goes in the nRF Connect **board roots**
+  setting, after which the target shows up in the dropdown. Use an absolute path:
+  sysbuild resolves relative `*_ROOT` variables against the application
+  directory, which is rarely what you mean.
+
+  The copy is self-contained: `seeed_xiao_connector.dtsi` lives inside the board
+  directory, and the SoC-level includes it pulls in
+  (`nordic/nrf54lm20a_cpuapp.dtsi`, `vendor/nordic/nrf54lm20_a_b_cpuapp_partition.dtsi`)
+  are both present in `sdk-zephyr`. Expect to re-sync the copy whenever upstream
+  changes the board — this repo's `ncs_fixups.overlay` already exists because the
+  two trees do not always agree.
+
+Two failure modes of the VS Code route are worth recognising, because neither is
+caused by the board files:
+
+* **"Loading boards…" that never finishes, or an error about an unrelated SoC**
+  (`The SoC stm32c5a3xx was not found in the SDK`). Adding a board root makes the
+  extension re-scan every board it knows about, and it trips over its own stale
+  board/SoC cache — the message says as much ("could be a result of the `west
+  update` of the SDK that cleared the SoC cache"). Restart VS Code, or have the
+  extension regenerate the cache; the STM32 name is noise, not a hint.
+* **A build that fails "because of the Bare Metal SDK" after switching the SDK
+  in the dialog.** The selected SDK is baked into the build configuration and
+  into `build/CMakeCache.txt` when it is first created. Changing the dropdown
+  does not retarget an existing configuration — delete the build configuration
+  and its `build/` directory, then create it again against the RTOS-based SDK.
+
+None of this affects the command line. `west build --sysbuild` from a plain
+`zephyrproject` workspace is the reference path and stays the quickest way to a
+known-good image.
+
+#### If the MCUboot image fails to link
+
+A `--sysbuild` build that dies while linking `mcuboot/zephyr/zephyr_pre0.elf`
+with `undefined reference to z_impl_k_mutex_lock` / `k_work_submit` /
+`z_impl_k_usleep` (usually preceded by the Kconfig warning `I2C ... was assigned
+the value 'n' but got the value 'y'`) is the board's power-management drivers
+leaking into the bootloader: MCUboot is built single-threaded on Nordic SoCs,
+but the XIAO board tree enables `CONFIG_REGULATOR` plus the `power_en` regulator
+and the nPM1300 on a bit-banged I²C bus for *every* sysbuild image, and those
+drivers need the kernel mutex/work-queue APIs. `sysbuild/mcuboot.conf` turns
+`CONFIG_REGULATOR` and `CONFIG_MFD` off for the bootloader image to prevent
+this; if you see the error, check that fragment is being picked up (it must sit
+next to the application, i.e. `firmware-nrf54lm20a/sysbuild/mcuboot.conf`) and
+rebuild with `--pristine`. The failure is not host- or toolchain-specific, and
+neither a plain `west build` nor `pio run` reproduces it — they never build
+MCUboot.
+
+#### Device is silent after flashing (no console, no BLE)
+
+The firmware prints its banner as the very first statement of `main()`, before
+touching any sensor, and starts advertising a few lines later. Missing sensors
+never cause silence — an unconnected SHT40 just prints `climate : n/a`. So *no
+console output **and** no advertising* means the application is not running at
+all, and the fault is in the boot chain rather than in the application. Work
+through it in this order:
+
+1. **Is the console itself proven?** Check the port name (macOS uses
+   `/dev/cu.usbmodem*`, not `/dev/ttyACM0`) and press **RST** with the monitor
+   already attached — the banner prints once at reset and is easy to miss.
+   Silence on BLE too makes a pure console problem unlikely, but this is the
+   cheapest check.
+2. **Did both images reach the chip?** Run `west flash` against the top-level
+   sysbuild build directory, not a sub-image directory, and read its output: it
+   should program two images. Re-flash explicitly with
+   `west flash --domain mcuboot` and `west flash --domain firmware-nrf54lm20a`
+   if in doubt. An application alone at slot 0 with nothing at `0x0` faults
+   before `main()` and is completely silent — this is the same brick the
+   `pio run -t upload` warning above describes.
+3. **Make MCUboot talk.** `sysbuild/mcuboot.conf` disables the bootloader's
+   console for size, which also means a bootloader that refuses to start slot 0
+   fails *silently*. Temporarily comment out the `CONFIG_SERIAL=n` /
+   `CONFIG_CONSOLE=n` / `CONFIG_UART_CONSOLE=n` lines there, add
+   `CONFIG_MCUBOOT_LOG_LEVEL_INF=y`, rebuild with `--pristine` and re-flash.
+   MCUboot then reports on `uart20` whether it found and validated a slot-0
+   image. A signature or image-magic complaint points at the signing key; no
+   MCUboot output at all points back at step 2.
+4. **Check the signing key matched.** The application must be signed with the
+   key the bootloader was built with. Zephyr does *not* fail the build when the
+   application has no signing key — `cmake/mcuboot.cmake` only warns that the
+   result "will not be bootable by MCUboot unless it is signed manually", and
+   `west flash` then programs an unsigned image that MCUboot silently rejects.
+   Confirm `build/firmware-nrf54lm20a/zephyr/zephyr.signed.hex` exists and that
+   the configure log names the same key file for both images. See the next
+   section for how to tell the two apart.
+
+#### `E: Image in the primary slot is not valid!`
+
+With the bootloader console enabled (step 3 above) a rejected application looks
+like this:
+
+```
+I: Starting bootloader
+I: Primary image: magic=unset, swap_type=0x1, copy_done=0x3, image_ok=0x3
+I: Boot source: none
+E: Image in the primary slot is not valid!
+E: Unable to find bootable image
+```
+
+`magic=unset` and `image_ok=0x3` are **not** the problem — those describe the
+image *trailer*, which an SWD-flashed image legitimately does not have, and
+MCUboot boots such an image happily. The failure is `boot_validate_slot()`
+rejecting slot 0, which has exactly two causes: the header/signature does not
+verify against the key built into the bootloader, or the bytes on the chip are
+not the bytes `imgtool` produced. Two commands separate them:
+
+```bash
+# (a) Is the image itself validly signed with the bootloader's key?
+#     Default sysbuild config uses MCUboot's RSA-2048 development key.
+cd <west-topdir>
+python bootloader/mcuboot/scripts/imgtool.py verify \
+  -k bootloader/mcuboot/root-rsa-2048.pem \
+  <build>/firmware-nrf54lm20a/zephyr/zephyr.signed.bin
+
+# (b) Do the bytes on the chip match the hex? (openocd runner only)
+west flash --domain firmware-nrf54lm20a --verify
+```
+
+If (a) fails, the build is at fault — compare the two images' Kconfig, which is
+where a signing-type or key mismatch shows up:
+
+```bash
+grep -E 'MCUBOOT_SIGNATURE_KEY_FILE|MCUBOOT_GENERATE_UNSIGNED_IMAGE|ROM_START_OFFSET|MCUBOOT_BOOTLOADER_MODE' \
+  <build>/firmware-nrf54lm20a/zephyr/.config
+grep -E 'BOOT_SIGNATURE_TYPE|BOOT_SIGNATURE_KEY_FILE|BOOT_VALIDATE_SLOT0|BOOT_SWAP|SINGLE_APPLICATION_SLOT' \
+  <build>/mcuboot/zephyr/.config
+```
+
+The bootloader and the application must agree on the signature type and the key,
+and on the MCUboot mode. Sysbuild derives both sides from the same
+`SB_CONFIG_BOOT_SIGNATURE_TYPE_*` / `SB_CONFIG_BOOT_SIGNATURE_KEY_FILE` (default:
+RSA with `$(ZEPHYR_MCUBOOT_MODULE_DIR)/root-rsa-2048.pem`), so a mismatch means
+something overrode one side — most often a `CONFIG_BOOT_*` line added to
+`sysbuild/mcuboot.conf`, which changes only the bootloader and leaves the
+application signed the old way. Set signing options in `sysbuild.conf` as
+`SB_CONFIG_*` instead, so both images move together.
+
+If (a) passes but (b) fails, the image is good and the programming step is at
+fault — see the next section, which is the known cause on this board.
+
+#### Known bug: the OpenOCD RRAM loader drops the last partial write
+
+**Symptom.** `imgtool verify` says the image is fine, but `west flash --verify`
+reports a handful of `0xff` bytes at the very end of the image:
+
+```
+Error: checksum mismatch - attempting binary compare
+diff 0 address 0x00035130. Was 0xff instead of 0xf3
+...
+No more differences found.
+```
+
+**Cause.** The board's flash loader in
+`boards/seeed/xiao_nrf54lm20a/support/openocd.cfg` is:
+
+```tcl
+proc nrf54lm20a-load {file} {
+    mww 0x5004e500 0x101
+    load_image $file
+}
+```
+
+`0x5004e500` is `RRAMC.CONFIG`; `0x101` sets `WEN=1` **and a one-line (16-byte)
+write buffer**. `load_image` then writes the image, and the proc stops — it never
+commits the buffer. The nRF54L RRAM controller only writes a 128-bit line out
+when that line fills, so whatever does not reach a 16-byte boundary is left in
+the buffer and never lands in RRAM.
+
+The application image is 151864 bytes; `151864 mod 16 = 8`, so the final **8**
+bytes — the tail of the signature TLV — are silently dropped. MCUboot then reads
+a truncated signature and reports `E: Image in the primary slot is not valid!`.
+Zephyr's own RRAM driver gets this right: `soc_flash_nrf_rram.c` has a
+`commit_changes()` that triggers `NRF_RRAMC_TASK_COMMIT_WRITEBUF` whenever the
+write length is not a multiple of the buffer size. The OpenOCD script has no
+equivalent. This is upstream board support, not a HiveInside bug, and it affects
+any image whose length is not 16-byte aligned.
+
+**Fix.** Disable the write buffer in that proc — one character, and it needs no
+register offsets:
+
+```tcl
+proc nrf54lm20a-load {file} {
+    mww 0x5004e500 0x1     ;# WEN=1, write-buffer size 0 -> every write commits
+    load_image $file
+}
+```
+
+Flashing gets slower, and correct. Keeping the buffer means flushing it after
+`load_image`, either by triggering `TASKS_COMMITWRITEBUF` or by reading back the
+last written byte — the Product Specification commits a line on "a read
+operation from a 128-bit word line in the buffer that has already been written
+to", which is the fallback Zephyr's driver uses when the commit task is
+unavailable.
+
+**Re-flash both images afterwards**, not just the application. MCUboot is written
+in three sections of 34636, 2720 and 60 bytes; the first and last are also not
+16-byte aligned, so up to 12 bytes are missing from each. It boots regardless —
+those bytes happen not to be on any path that matters — but the bootloader on the
+device is not the bootloader that was built. Confirm with:
+
+```bash
+west flash --domain mcuboot --verify
+west flash --domain firmware-nrf54lm20a --verify
+```
 
 ## Deprecated prototype: XIAO ESP32-C6
 
