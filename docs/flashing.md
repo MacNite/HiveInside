@@ -166,6 +166,17 @@ CMSIS-DAP debugger; with an external probe (below) select the matching runner, e
 and J-Link as optional protocols that require a verified compatible probe and
 board revision.
 
+> ⚠️ **Not** the "nRF Connect SDK **Bare Metal**" option (`nrf-bm`, board
+> targets prefixed `bm_`). That is a separate, RTOS-free SDK line built on the
+> SoftDevice and raw nrfx drivers — it has no Zephyr kernel, no Zephyr device
+> model or devicetree-driven peripherals, and no Zephyr Bluetooth host. This
+> firmware is a Zephyr application (`zephyr/kernel.h`, `zephyr/bluetooth/*`,
+> `zephyr/drivers/{regulator,i2c,sensor,gpio}.h`, `zephyr/audio/dmic.h`,
+> `zephyr/dfu/mcuboot.h`, plus the board overlays), so it cannot build there at
+> any version. Use upstream Zephyr or the RTOS-based nRF Connect SDK. Note also
+> that `bm_nrf54lm20dk` is Nordic's nRF54LM20 **DK**, a different board from the
+> Seeed XIAO nRF54LM20A Sense this firmware targets.
+
 #### If the MCUboot image fails to link
 
 A `--sysbuild` build that dies while linking `mcuboot/zephyr/zephyr_pre0.elf`
