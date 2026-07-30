@@ -88,6 +88,10 @@ type.
 
 ### Radio sleep and battery life
 
+- The firmware switches nPM1300 LDO1 off after each acquisition and restores it
+  shortly before the next one. This removes the on-board IMU and microphone's
+  standby load for nearly all of the five-minute measurement interval. The PMIC
+  and external SHT40 remain available because they use other supplies.
 - Keep advertising continuous. The nRF controller autonomously sleeps between
   the three short advertising-channel transmissions, and the application CPU
   remains asleep. Stopping BLE between measurements would save a little radio

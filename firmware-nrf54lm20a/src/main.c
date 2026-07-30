@@ -153,9 +153,14 @@ int main(void)
 		}
 		struct measurement m = { 0 };
 
+		/* LDO1 is normally off between cycles. Wake the IMU and microphone
+		 * immediately before acquisition, then remove their standby load once
+		 * both captures are complete. Climate and battery use other rails. */
+		(void)power_sensor_rail_enable();
 		sht40_read(&m);
 		accel_read(&m);
 		mic_read(&m);
+		(void)power_sensor_rail_disable();
 		battery_read(&m);
 
 		print_readout(&m);
