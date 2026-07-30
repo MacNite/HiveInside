@@ -23,7 +23,7 @@
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
 #ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.4.0"
+#define HIVEINSIDE_FW_VERSION "0.4.2"
 #endif
 /* Keep the advertised representation numeric and fixed-width.  These values
  * intentionally do not build HIVEINSIDE_FW_VERSION with preprocessor string
@@ -31,7 +31,7 @@
  * mechanism as the last known-good firmware. */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0U
 #define HIVEINSIDE_FW_VERSION_MINOR 4U
-#define HIVEINSIDE_FW_VERSION_PATCH 0U
+#define HIVEINSIDE_FW_VERSION_PATCH 2U
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
