@@ -27,6 +27,7 @@
 	DT_CHILD(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_npm1300_regulator), ldo1)
 
 static const struct device *const ldo1 = DEVICE_DT_GET(LDO1_NODE);
+static bool sensor_rail_enabled;
 
 /* P1.12 gates the complete Sense-board sensor supply.  LDO1 being enabled is
  * not sufficient when this upstream fixed regulator is off.  Seeed's DMIC
@@ -79,10 +80,44 @@ void power_init(void)
 	if (enable_regulator(ldo1, "LDO1") != 0) {
 		return;
 	}
+	sensor_rail_enabled = true;
 	/* The IMU and microphone share this rail. Give both parts time to
 	 * leave reset before their first I2C/PDM transaction. */
 	k_msleep(20);
 	printk("[PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)\n");
+}
+
+int power_sensor_rail_enable(void)
+{
+	if (sensor_rail_enabled) {
+		return 0;
+	}
+
+	int err = enable_regulator(ldo1, "LDO1");
+
+	if (err != 0) {
+		return err;
+	}
+	sensor_rail_enabled = true;
+	/* The IMU and microphone need time to leave reset before use. */
+	k_msleep(20);
+	return 0;
+}
+
+int power_sensor_rail_disable(void)
+{
+	if (!sensor_rail_enabled) {
+		return 0;
+	}
+
+	int err = regulator_disable(ldo1);
+
+	if (err != 0 && err != -EALREADY) {
+		printk("[PWR] LDO1 disable failed (%d)\n", err);
+		return err;
+	}
+	sensor_rail_enabled = false;
+	return 0;
 }
 
 #else /* devicetree has no nPM1300 LDO1 */
@@ -90,6 +125,16 @@ void power_init(void)
 void power_init(void)
 {
 	printk("[PWR] no nPM1300 LDO1 node — sensor rail unmanaged\n");
+}
+
+int power_sensor_rail_enable(void)
+{
+	return 0;
+}
+
+int power_sensor_rail_disable(void)
+{
+	return 0;
 }
 
 #endif
