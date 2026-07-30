@@ -92,6 +92,14 @@ type.
   shortly before the next one. This removes the on-board IMU and microphone's
   standby load for nearly all of the five-minute measurement interval. The PMIC
   and external SHT40 remain available because they use other supplies.
+  With the default settings the rail is needed for roughly 3.2 s per 300 s
+  cycle (about 1.1% duty cycle). Using typical component standby figures as a
+  planning estimate, switching it off saves approximately **10–20 uA average**
+  at the battery, or **0.24–0.48 mAh/day** (**88–175 mAh/year**). This is not a
+  whole-device battery-life prediction: BLE, the SoC, PMIC, SHT40, battery
+  self-discharge, temperature, and regulator losses remain. Confirm the result
+  on production hardware with a power analyzer, because board leakage and
+  component spread can be comparable to these small standby currents.
 - Keep advertising continuous. The nRF controller autonomously sleeps between
   the three short advertising-channel transmissions, and the application CPU
   remains asleep. Stopping BLE between measurements would save a little radio
