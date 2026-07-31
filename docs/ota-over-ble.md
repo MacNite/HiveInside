@@ -43,11 +43,14 @@ backend and whose CRC/size are sent in BEGIN.
 
 ## GATT protocol
 
-All OTA characteristics live in the existing custom HiveInside service
-`8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01`. UUIDs and framing must stay in sync with
-HiveScale `firmware/src/ble_sensor.cpp` (the `HI_OTA_*` constants) and the
-deprecated HiveInside ESP32-C6 prototype's
-`firmware-esp32-c6/src/ble_link.cpp` (the `CHR_OTA_*` / `OTA_OP_*` constants).
+All OTA characteristics live in the custom HiveInside service
+`8e8b0001-7a1c-4b9e-9a2f-1d6e0b9c1a01`, implemented in
+[`firmware-nrf54lm20a/src/ota.c`](../firmware-nrf54lm20a/src/ota.c). UUIDs and
+framing must stay in sync with HiveScale `firmware/src/ble_sensor.cpp` (the
+`HI_OTA_*` constants). These three characteristics are the **only** GATT
+attributes the device exposes — there is no measurement characteristic; the
+measurement is read from the advertisement (see
+[`../firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md)).
 
 | Characteristic | UUID | Props | Payload |
 |---|---|---|---|
@@ -139,8 +142,8 @@ stronger connection guardrail, but requires a future HiveHub bonding change.
 
 ## Build
 
-From `firmware-nrf54lm20a/`, `pio run` builds the PlatformIO target. For an
-explicit upstream Zephyr sysbuild, use `west build -b
+From `firmware-nrf54lm20a/`, `pio run` compile-checks the application but cannot
+produce a release artifact. Build releases with sysbuild: `west build -b
 xiao_nrf54lm20a/nrf54lm20a/cpuapp --sysbuild .`. Release automation must publish
 the generated **signed** application binary, never the raw `zephyr.bin`.
 
@@ -169,10 +172,9 @@ For every release:
    whose bootloader, signing key, partition layout, or radio/application startup
    is broken.
 
-## Deprecated ESP32-C6 reference
+## Implementation
 
-The ESP32-C6 `Update.h` implementation and its dual-OTA CSV remain only as a
-protocol/state-machine reference. The primary nRF54 implementation is
-`firmware-nrf54lm20a/src/ota.c`; it streams to the board's MCUboot secondary
-slot, validates size and CRC, requests a test swap, and self-confirms after a
-healthy boot. No placeholder GATT implementation exists.
+`firmware-nrf54lm20a/src/ota.c` streams into the board's MCUboot secondary slot,
+validates size and CRC, requests a test swap, and self-confirms after a healthy
+boot. There is no placeholder or alternative OTA implementation in this
+repository.

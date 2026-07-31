@@ -12,8 +12,8 @@
  * firmware boots and keeps sampling whether or not a terminal is attached.
  *
  * Alongside the plain readings it runs the same vibration and acoustic FFT band
- * analysis as the ESP32-C6 prototype, prints those bands, and broadcasts the
- * reduced measurement in HiveHub's BLE manufacturer-data format.
+ * analysis as HiveScale, prints those bands, and broadcasts the reduced
+ * measurement in HiveHub's BLE manufacturer-data format.
  */
 #include "accel.h"
 #include "battery.h"
