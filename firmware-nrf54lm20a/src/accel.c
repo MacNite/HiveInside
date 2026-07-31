@@ -3,9 +3,9 @@
  * Raw-register I²C access, so the readout does not depend on which Zephyr
  * driver the board devicetree happens to bind to the on-board IMU. The chip is
  * identified by WHO_AM_I, so either the Sense module's LSM6DS3TR-C or a
- * prototype LIS3DH breakout works unchanged. Both are sampled at ~400 Hz into
- * the same magnitude/FFT pipeline the ESP32-C6 prototype used, so the band
- * values mean the same thing across the ecosystem.
+ * external LIS3DH breakout works unchanged. Both are sampled at ~400 Hz into
+ * the same magnitude/FFT pipeline HiveScale uses, so the band values mean the
+ * same thing across the ecosystem.
  *
  * The sensor is powered down between cycles (ODR = 0) — on the Sense module the
  * IMU rail (nPM1300 LDO1) stays up for the mic anyway, so power-down current is

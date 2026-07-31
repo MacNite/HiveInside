@@ -162,9 +162,12 @@ int beacon_publish(const struct measurement *m)
 	}
 
 	encode(m);
-	/* Flags are optional for a non-connectable LE-only broadcaster. Omitting
-	 * that three-byte AD element leaves the complete 31-byte legacy payload for
-	 * the manufacturer element: 29 data bytes plus its length and type. */
+	/* The Flags AD element is omitted: dropping those three bytes leaves the
+	 * complete 31-byte legacy payload for the manufacturer element (29 data
+	 * bytes plus its length and type). Without Flags the device is formally
+	 * non-discoverable — a scanner filtering on the discoverable bits may not
+	 * list it — but HiveHub's passive scan and a connect by address, which is
+	 * how the OTA relay reaches it, are unaffected. */
 	const struct bt_data ad[] = {
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 	};

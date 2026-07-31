@@ -4,11 +4,11 @@ Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
 Zephyr**.
 
 The firmware reads every sensor, prints the readings to the USB serial console,
-runs the **same vibration and acoustic FFT band analysis as the ESP32-C6
-prototype**, and broadcasts each reduced result as a BLE beacon. The 29-byte
+runs the **same vibration and acoustic FFT band analysis as HiveScale/HiveHub**,
+and broadcasts each reduced result as a BLE beacon. The 29-byte
 manufacturer-data frame keeps its 26-byte version-1 prefix directly compatible
-with the current HiveHub passive scanner; no BLE connection or wake
-synchronisation is needed.
+with the current HiveHub passive scanner; reading the measurement needs no BLE
+connection and no wake synchronisation.
 
 ## What it reads
 
@@ -22,8 +22,8 @@ and prints a block to the console:
 | Sound | MSM261DGT006 on-board PDM mic | Zephyr `dmic` API, RMS/peak + FFT bands (dBFS) |
 | Battery | nPM1300 PMIC fuel gauge | Zephyr sensor API (`SENSOR_CHAN_GAUGE_VOLTAGE`) |
 
-The accelerometer probe auto-detects the chip by `WHO_AM_I`, so a prototype-style
-external LIS3DH/LIS2DH12 (`0x18`/`0x19`) also works for bench comparisons.
+The accelerometer probe auto-detects the chip by `WHO_AM_I`, so an external
+LIS3DH/LIS2DH12 breakout (`0x18`/`0x19`) also works for bench comparisons.
 
 The FFT bands are the ecosystem-shared bands:
 
@@ -37,36 +37,63 @@ cycle, so a partial board still gives a useful readout.
 
 ## BLE data transfer
 
-The node sends one non-connectable legacy advertisement containing a 29-byte
-manufacturer-data value. Format version 2 retains every version-1 field at the
-same offset and appends acceleration peak and microphone peak, so existing
-HiveHubs continue to decode the core data while an updated decoder can expose
-both peaks. The frame starts with company ID `0x02E5`, magic `H`, and the format
-version, followed by climate, battery, vibration FFT and acoustic FFT values.
-A sensor failure
+The node sends one **legacy connectable undirected (`ADV_IND`)** advertisement
+containing a 29-byte manufacturer-data value. The measurement itself is read
+passively out of that advertisement — the connectable PDU type exists only so a
+relay can open the firmware-over-BLE service (see
+[`../docs/ota-over-ble.md`](../docs/ota-over-ble.md)); no GATT characteristic
+carries sensor data.
+
+Format version 2 retains every version-1 field at the same offset and appends
+acceleration peak and microphone peak, so existing HiveHubs continue to decode
+the core data while an updated decoder can expose both peaks. A sensor failure
 clears that group's validity flag, preventing the server from interpreting
 zero-filled bytes as a real measurement.
 
-The version-2 extension is little-endian and uses the existing group validity
-bits:
+All multi-byte fields are little-endian. Offsets count from the start of the
+manufacturer-specific data, i.e. including the two company-ID bytes:
 
 | Offset | Field | Encoding | Valid when |
 |---:|---|---|---|
-| `26..27` | acceleration peak | `uint16`, 0.1 mg/LSB | accel flag (bit 1) |
-| `28` | microphone peak | `int8`, 1 dBFS/LSB | mic flag (bit 2) |
+| `0..1` | Company ID | `0x02E5` | always |
+| `2` | Magic | `0x48` (`H`) | always |
+| `3` | Format version | `2` | always |
+| `4` | Validity flags | bit 0 climate, 1 accel, 2 mic, 3 battery | always |
+| `5..6` | Temperature | `int16`, 0.1 °C/LSB | climate flag |
+| `7..8` | Humidity | `uint16`, 0.1 %RH/LSB | climate flag |
+| `9..10` | Battery voltage | `uint16`, 1 mV/LSB | battery flag |
+| `11` | Battery charge | `uint8`, % (0–100) | battery flag |
+| `12..13` | Acceleration RMS | `uint16`, 0.1 mg/LSB | accel flag |
+| `14..15` | Vibration band — swarm (8–30 Hz) | `uint16`, 0.1 mg/LSB | accel flag |
+| `16..17` | Vibration band — fanning (30–100 Hz) | `uint16`, 0.1 mg/LSB | accel flag |
+| `18..19` | Vibration band — activity (100–200 Hz) | `uint16`, 0.1 mg/LSB | accel flag |
+| `20` | Microphone RMS | `int8`, 1 dBFS/LSB | mic flag |
+| `21` | Acoustic band — sub-bass (50–150 Hz) | `int8`, 1 dBFS/LSB | mic flag |
+| `22` | Acoustic band — hum (150–300 Hz) | `int8`, 1 dBFS/LSB | mic flag |
+| `23` | Acoustic band — piping (300–550 Hz) | `int8`, 1 dBFS/LSB | mic flag |
+| `24` | Acoustic band — stress (550–1500 Hz) | `int8`, 1 dBFS/LSB | mic flag |
+| `25` | Acoustic band — high (1500–3000 Hz) | `int8`, 1 dBFS/LSB | mic flag |
+| `26..27` | Acceleration peak *(v2)* | `uint16`, 0.1 mg/LSB | accel flag |
+| `28` | Microphone peak *(v2)* | `int8`, 1 dBFS/LSB | mic flag |
 
 HiveHub decoders that only understand the 26-byte version-1 prefix safely
-ignore these trailing bytes. They continue to ingest every existing field, but
-must add the offsets above before the two new peaks appear in backend data.
+ignore the two trailing v2 fields. They continue to ingest every existing field,
+but must add the offsets above before the two new peaks appear in backend data.
 
-The primary advertisement is exactly full. BLE Flags are optional for this
-non-connectable LE-only broadcaster and are omitted so the three peak-extension
-bytes fit without requiring extended advertising. The human-readable device name
-`HiveInside` is provided in its scan response. This preserves the complete
-manufacturer payload for HiveHub's passive scanner while letting an active
-setup scan display a friendly name. The source also declares the manufacturer
-name as `HiveInside`; on the BLE wire, manufacturer-specific data contains only
-the numeric company ID (`0x02E5`), as required by the BLE AD format.
+The primary advertisement is exactly full: 29 data bytes plus the AD length and
+type byte fill the 31-byte legacy limit. The optional **BLE Flags** AD element is
+therefore omitted, which is what makes the three peak-extension bytes fit without
+extended advertising. One consequence is worth knowing: without a Flags element
+the device is formally *non-discoverable*, so scanners that filter on the
+general/limited discoverable bits may not list it even though it is connectable.
+HiveHub's passive scan and a direct connect by address are unaffected.
+
+The human-readable device name `HiveInside` rides in the scan response instead.
+This preserves the complete manufacturer payload for HiveHub's passive scanner
+while letting an active setup scan display a friendly name. The source also
+declares the manufacturer name as `HiveInside`; on the BLE wire,
+manufacturer-specific data contains only the numeric company ID (`0x02E5`), as
+required by the BLE AD format.
 
 Active scans also receive a compact manufacturer-data identity record in the
 scan response. It does not alter the full 29-byte measurement advertisement or
@@ -83,8 +110,7 @@ the USB console path.
 The Bluetooth controller repeats the latest measurement every second. HiveHub
 therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
-**HiveInside (nRF54LM20A) — beacon**; do not select the legacy ESP32-C6 GATT
-type.
+**HiveInside (nRF54LM20A) — beacon**.
 
 ### Radio sleep and battery life
 
@@ -123,10 +149,11 @@ type.
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.0 | sensor readout over USB
+[HiveInside] nrf54lm20a fw 0.4.2 | USB + HiveHub BLE beacon
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
+[BLE] ready; name=HiveInside manufacturer=HiveInside id=0x02e5 interval=1000 ms
 [SHT40] present on i2c@...
-[ACCEL] LSM6-class IMU at 0x6A on i2c@...
+[ACCEL] LSM6DS3TR-C at 0x6A on i2c@...
 ---- HiveInside readout ----
   climate : 24.31 C   47.8 %RH
   accel   : x=-3.2 y=1.8 z=1004.6 mg  |a|=1004.6 mg
@@ -136,6 +163,7 @@ Example output:
   ac FFT  : sub=-58.2 hum=-49.7 pipe=-63.1 stress=-71.4 hi=-88.0 dBFS
   battery : 4.011 V  ~78%
 ----------------------------
+[BLE] measurement advertised (flags=0x0f)
 ```
 
 After each successful measurement advertisement update, the built-in blue LED
@@ -228,9 +256,11 @@ firmware-nrf54lm20a/
 │   ├── CMakeLists.txt    (points back at ../src)
 │   ├── prj.conf          identical copy of the root prj.conf
 │   └── app.overlay       identical copy of the root app.overlay
+├── ncs_fixups.overlay    west/NCS-only DT fixups (see CMakeLists.txt)
 └── src/
     ├── main.c            sensor loop + console print + beacon publish
     ├── beacon.[ch]       HiveHub-compatible manufacturer-data advertising
+    ├── ota.[ch]          firmware-over-BLE GATT service → MCUboot slot 1
     ├── hive_config.h     addresses, timing, bands, per-sensor settings
     ├── measurement.h     one sensor snapshot, shared by every module
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
@@ -250,8 +280,8 @@ firmware-nrf54lm20a/
 ## Roadmap
 
 1. **Sensor readout over USB** — done.
-2. **Vibration + acoustic FFT band analysis** (same bands as the ESP32-C6
-   prototype) — done, printed to the console alongside the raw readings.
+2. **Vibration + acoustic FFT band analysis** (the bands shared with
+   HiveScale/HiveHub) — done, printed to the console alongside the raw readings.
 3. **BLE measurement beacon** (the 29-byte manufacturer-data advertisement
    HiveHub ingests) — done.
 4. **BLE board/firmware identity** (compact scan-response record) — done.

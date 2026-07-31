@@ -25,14 +25,16 @@ Connect the 500 mAh single-cell LiPo to the XIAO battery connector, observing
 its polarity. The XIAO's on-board nPM1300 PMIC manages charging over USB-C and
 fuel-gauge functions.
 
+## Optional: external accelerometer for bench work
+
+The firmware identifies the accelerometer by `WHO_AM_I` on any enabled I²C bus,
+so an external LIS3DH/LIS2DH12 breakout also works for bench comparisons.
+Strap `SDO/SA0 → GND` for address `0x18` (or `→ VCC` for `0x19`) and wire SDA/SCL
+to the same D4/D5 pads as the SHT40. It is not needed on the Sense module, whose
+on-board LSM6DS3TR-C sits on the internal `i2c30` bus.
+
 ## Enclosure
 
 The current 3D-printable enclosure release is kept in
 [`enclosure/`](../enclosure/). It is sized for the XIAO nRF54LM20A Sense, SHT40,
 and 500 mAh LiPo.
-
-## ESP32-C6 prototype
-
-The deprecated ESP32-C6 prototype has a separate breakout wiring scheme. See
-[`esp32c6-prototype.md`](esp32c6-prototype.md) and
-`firmware-esp32-c6/include/config.h` when working with that historical target.

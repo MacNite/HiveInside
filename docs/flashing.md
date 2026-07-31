@@ -1,6 +1,6 @@
 # Flashing HiveInside
 
-## Primary target: XIAO nRF54LM20A Sense
+## Target: XIAO nRF54LM20A Sense
 
 This firmware boots **through MCUboot** so it can accept firmware-over-BLE
 updates (see [`ota-over-ble.md`](ota-over-ble.md)). A bootable image is therefore
@@ -108,8 +108,8 @@ pio device monitor -p /dev/cu.usbmodemXXXX -b 115200
 ```
 
 The startup banner
-(`[HiveInside] nrf54lm20a fw <version> | sensor readout over USB`) prints **once
-at boot**, followed by a readout block every few seconds, so if the monitor is
+(`[HiveInside] nrf54lm20a fw <version> | USB + HiveHub BLE beacon`) prints **once
+at boot**, followed by a readout block every measurement cycle, so if the monitor is
 opened afterwards, press **RST** with it connected to see the banner and the
 first readout. The console is a plain polled UART, so the firmware never blocks
 on a missing terminal — it boots and keeps sampling regardless. (The nRF54's
@@ -374,8 +374,9 @@ commits the buffer. The nRF54L RRAM controller only writes a 128-bit line out
 when that line fills, so whatever does not reach a 16-byte boundary is left in
 the buffer and never lands in RRAM.
 
-The application image is 151864 bytes; `151864 mod 16 = 8`, so the final **8**
-bytes — the tail of the signature TLV — are silently dropped. MCUboot then reads
+In the build this was diagnosed on, the application image was 151864 bytes;
+`151864 mod 16 = 8`, so the final **8** bytes — the tail of the signature TLV —
+were silently dropped. MCUboot then reads
 a truncated signature and reports `E: Image in the primary slot is not valid!`.
 Zephyr's own RRAM driver gets this right: `soc_flash_nrf_rram.c` has a
 `commit_changes()` that triggers `NRF_RRAMC_TASK_COMMIT_WRITEBUF` whenever the
@@ -411,19 +412,5 @@ west flash --domain mcuboot --verify
 west flash --domain firmware-nrf54lm20a --verify
 ```
 
-## Deprecated prototype: XIAO ESP32-C6
-
-The ESP32-C6 PlatformIO project is retained for historical testing and migration
-reference. It remains buildable and retains its OTA implementation, but is not
-the primary firmware path:
-
-```bash
-cd firmware-esp32-c6
-pio run -e c6_gatt_deprecated -t upload
-```
-
-The compatibility environment `c6_gatt` remains available for existing commands
-and CI. The C6 uses its native USB upload flow. If the port is not found, hold
-**BOOT**, tap **RESET**, then release **BOOT** to enter download mode and retry.
-
-See [`ota-over-ble.md`](ota-over-ble.md) for the ESP32-C6 prototype OTA protocol.
+See [`ota-over-ble.md`](ota-over-ble.md) for the firmware-over-BLE protocol and
+the production release/recovery checklist.
