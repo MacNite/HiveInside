@@ -11,7 +11,8 @@ for a measurement of the assembled board.
 * `k_msleep()` blocks the application instead of polling. Zephyr can idle the
   CPU while the Bluetooth controller schedules advertising events.
 * The nRF54 main regulator is configured for DC/DC operation by Seeed's board
-  definition.
+  definition (`&vregmain { regulator-initial-mode = <NRF5X_REG_MODE_DCDC>; }`
+  in `nrf54lm20a_cpuapp_common.dtsi`), so the application does not have to.
 * PDM is stopped after capture, and the accelerometer is put in power-down.
 * More importantly, nPM1300 LDO1 (the IMU/microphone rail) is disabled after
   both captures and enabled only immediately before the next acquisition.
@@ -33,16 +34,35 @@ west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
   -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
 ```
 
-The profile disables the diagnostic UART and LED and enables Zephyr device
-power management. BLE measurement advertisements and BLE OTA are unchanged.
+The profile disables the diagnostic UART, its console/`printk()` support, and
+the measurement LED. BLE measurement advertisements and BLE OTA are unchanged.
 The UART is the most important idle-only firmware difference: leaving a serial
 peripheral and its pins active solely for an unattended console is needless.
-Use the normal build for troubleshooting because the deployment profile has no
-serial output.
 
-The root CMake file appends its NCS devicetree fix-up rather than overwriting
-`EXTRA_DTC_OVERLAY_FILE`, so the command-line deployment overlay and the
-required NCS fix-up are both applied.
+Use the normal build for troubleshooting. The deployment profile has no serial
+output at all, so a wedged driver, a failed LDO1 enable, or a fatal error is
+invisible — the beacon simply keeps repeating the last good measurement. There
+is no watchdog in this firmware either; the only automatic recovery is the
+MCUboot rollback deadline in `main.c`, which is armed for test images only.
+Treat a hive that stops changing its readings as a site visit.
+
+Both file names above are relative and are resolved for you: Zephyr looks up
+`EXTRA_CONF_FILE` entries under the application config directory, and runs the
+devicetree preprocessor with the application source directory as its working
+directory. No absolute paths are needed.
+
+The root `CMakeLists.txt` sets `EXTRA_DTC_OVERLAY_FILE` to the NCS devicetree
+fix-up, and that does **not** hide the overlay you pass on the command line.
+Zephyr reads the variable with
+`zephyr_get(EXTRA_DTC_OVERLAY_FILE SYSBUILD LOCAL MERGE REVERSE)`, which merges
+the sysbuild, CMake-cache, environment, and local-variable scopes rather than
+taking only the highest-precedence one. Both overlays end up in the DTS list,
+fix-up first.
+
+> **Status: not yet build-verified.** CI compiles only the default
+> configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`, so
+> this profile is not covered. Run the command above once on your NCS workspace
+> before trusting it in the field, and before flashing a sealed node.
 
 ## Tune the two real duty cycles
 
@@ -61,6 +81,23 @@ Both are compile-time overrides, for example
 `-DEXTRA_CFLAGS=-DMEASURE_INTERVAL_MS=600000U` (or the equivalent build-system
 flag). Change one variable at a time and compare charge per complete cycle, not
 only the lowest current displayed between events.
+
+## Device power management is deliberately left off
+
+`CONFIG_PM_DEVICE=y` looks like an obvious addition to a low-power profile, but
+on its own it does nothing here. Neither `prj.conf` nor the Seeed board
+defconfig enables `CONFIG_PM` (system power management), and the profile does
+not enable `CONFIG_PM_DEVICE_RUNTIME`. Without one of those, no code path ever
+runs a device's suspend action: `CONFIG_PM_DEVICE` only compiles in the
+machinery. The result is extra flash, a per-device PM state, and altered driver
+init paths — several Nordic drivers behave differently under device PM — in
+exchange for no measured saving.
+
+If device PM is worth pursuing, do it as its own change: enable
+`CONFIG_PM_DEVICE_RUNTIME=y` (or `CONFIG_PM=y`) as well, re-verify that I²C,
+PDM, and the nPM1300 rail still come up, and compare integrated charge against
+the profile without it. The peripherals that stay powered between cycles here
+are few, so measure before assuming the saving exists.
 
 ## Do not use system-off in normal beacon mode
 

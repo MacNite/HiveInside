@@ -1,10 +1,21 @@
-/* Deployment profile: uart20 is useful during bring-up but is unnecessary in
- * a sealed beacon. Disabling it also selects its low-leakage pin state. */
+/* Deployment profile — apply together with low-power.conf; see
+ * docs/low-power.md.
+ *
+ * uart20 is useful during bring-up but is unnecessary in a sealed beacon.
+ * Disabling the node keeps the peripheral unconfigured and leaves its pins in
+ * the reset (disconnected) state. app.overlay still names uart20 as
+ * zephyr,console, but with CONFIG_UART_CONSOLE=n nothing resolves that chosen
+ * node, so a disabled console node is harmless here. */
 &uart20 {
 	status = "disabled";
 };
 
-/* A fresh-measurement blink is diagnostic only. */
+/* The fresh-measurement blink is diagnostic only, so drop it from a deployment
+ * image. This is a behaviour change, not a power optimisation: the LED is
+ * active-low and main.c already drives the pin inactive, so a disabled node
+ * saves only the 100 ms blink itself — about 0.03 % duty at the default
+ * five-minute interval. main.c compiles the blink out via the led0 alias
+ * status check, so nothing else has to change. */
 &blue_led {
 	status = "disabled";
 };
