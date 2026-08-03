@@ -114,6 +114,9 @@ with the next server upload. Pair the node by its stable identity address as
 
 ### Radio sleep and battery life
 
+For the full code/hardware audit, production build profile, measurement method,
+and upstream references, see [`../docs/low-power.md`](../docs/low-power.md).
+
 - The firmware switches nPM1300 LDO1 off after each acquisition and restores it
   shortly before the next one. This removes the on-board IMU and microphone's
   standby load for nearly all of the five-minute measurement interval. The PMIC

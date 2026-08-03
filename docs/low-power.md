@@ -1,0 +1,113 @@
+# Reducing idle power on the XIAO nRF54LM20A Sense
+
+This is a code-and-hardware audit for HiveInside's normal mode: continuous BLE
+advertising with a sensor acquisition every five minutes. It deliberately
+separates **idle current** from average current. A power analyzer is required
+to validate the final number; component typical values are not a substitute
+for a measurement of the assembled board.
+
+## What the firmware already gets right
+
+* `k_msleep()` blocks the application instead of polling. Zephyr can idle the
+  CPU while the Bluetooth controller schedules advertising events.
+* The nRF54 main regulator is configured for DC/DC operation by Seeed's board
+  definition.
+* PDM is stopped after capture, and the accelerometer is put in power-down.
+* More importantly, nPM1300 LDO1 (the IMU/microphone rail) is disabled after
+  both captures and enabled only immediately before the next acquisition.
+* The SHT40 uses its lowest-power, lowest-precision single-shot command rather
+  than periodic measurement mode.
+* BLE data is updated once per measurement. The controller repeats it without
+  a one-second application wake-up.
+
+## Use the deployment profile
+
+The default build intentionally retains `uart20`, floating-point `printk()`,
+and the blue measurement LED for bring-up. For a battery deployment, build the
+additional profile:
+
+```bash
+west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+  path/to/firmware-nrf54lm20a -- \
+  -DEXTRA_CONF_FILE=low-power.conf \
+  -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
+```
+
+The profile disables the diagnostic UART and LED and enables Zephyr device
+power management. BLE measurement advertisements and BLE OTA are unchanged.
+The UART is the most important idle-only firmware difference: leaving a serial
+peripheral and its pins active solely for an unattended console is needless.
+Use the normal build for troubleshooting because the deployment profile has no
+serial output.
+
+The root CMake file appends its NCS devicetree fix-up rather than overwriting
+`EXTRA_DTC_OVERLAY_FILE`, so the command-line deployment overlay and the
+required NCS fix-up are both applied.
+
+## Tune the two real duty cycles
+
+1. **Advertising interval.** The default is 1 s. Increasing
+   `BLE_ADV_INTERVAL_MS` reduces radio events, but the Hub scan window must be
+   several times longer than the interval. Measure packet reception before
+   deploying a larger value. A missed beacon that causes extra scans or site
+   visits is not a power saving.
+2. **Sensor interval.** Vibration capture lasts about 2.5 s and microphone
+   capture about 0.7 s, dwarfing idle leakage during those seconds. Increase
+   `MEASURE_INTERVAL_MS` to ten minutes if one new sample per ten-minute report
+   is acceptable. Do not shorten acquisition merely to align with a scan: the
+   latest result remains in the controller.
+
+Both are compile-time overrides, for example
+`-DEXTRA_CFLAGS=-DMEASURE_INTERVAL_MS=600000U` (or the equivalent build-system
+flag). Change one variable at a time and compare charge per complete cycle, not
+only the lowest current displayed between events.
+
+## Do not use system-off in normal beacon mode
+
+Seeed's low-power example suspends the console and calls `sys_poweroff()`.
+That is appropriate for shipping/storage mode, but system-off resets the CPU
+on wake and stops continuous BLE advertising. It therefore breaks HiveHub's
+unsynchronised passive scan. A future shipping mode can use a button or timed
+wake source, but it must be a separate user-selected mode.
+
+Likewise, do not periodically stop and restart BLE without a synchronised Hub.
+The existing controller-managed interval lets the CPU sleep while retaining
+reliable asynchronous discovery.
+
+## Hardware measurement checklist
+
+* Measure from the battery input with USB disconnected. The on-board debugger,
+  USB bridge, and charger can dominate a measurement made through USB.
+* Remove the power analyzer's debugger connection after flashing; an attached
+  SWD probe can prevent the lowest hardware state or back-power I/O.
+* Capture at least one whole five-minute cycle. Record idle baseline,
+  advertising spikes, sensor-rail enable/capture, and total integrated charge.
+* Verify LDO1 is actually off between cycles. If it is not, check the nPM1300
+  I2C pin override and the firmware's `[PWR]` errors with a diagnostic build.
+* Check for external SHT40 breakout pull-ups or regulator LEDs. A convenient
+  breakout can consume much more than the sensor itself; use a bare low-leakage
+  board or switch its supply in the final hardware.
+* Compare normal and deployment images on the same board, battery voltage,
+  temperature, advertising interval, and analyzer range.
+
+## Source basis and limits
+
+The recommendations were checked against the complete firmware tree and these
+upstream resources (accessed 2026-08-03):
+
+* [Zephyr system power management](https://docs.zephyrproject.org/latest/services/pm/system.html)
+  explains idle/system states and residency decisions.
+* [Zephyr device power management](https://docs.zephyrproject.org/latest/services/pm/device.html)
+  covers device suspend and runtime PM.
+* [Zephyr system-off sample](https://docs.zephyrproject.org/latest/samples/boards/nordic/system_off/README.html)
+  documents wake/reset behavior for Nordic targets.
+* [Seeed's Zephyr low-power example](https://github.com/Seeed-Studio/platform-seeedboards/tree/main/examples/zephyr-lowpower)
+  explicitly suspends the console before system-off.
+* [Seeed's XIAO nRF54LM20A board definition](https://github.com/Seeed-Studio/platform-seeedboards/tree/main/zephyr/boards/arm/xiao_nrf54lm20a)
+  is the authority for DC/DC mode, UART sleep pinctrl, PMIC, and sensor rails.
+* [Nordic nRF54L Series power optimization guide](https://docs.nordicsemi.com/bundle/nwp_045/page/WP/nwp_045/intro.html)
+  gives the SoC-level measurement and optimization background.
+
+Upstream repositories and documentation can change. The links justify the
+mechanisms, not a promised board current. This project has not yet been
+hardware-validated, so no new microamp or battery-life claim is made here.

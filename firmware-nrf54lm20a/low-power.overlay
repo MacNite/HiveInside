@@ -1,0 +1,10 @@
+/* Deployment profile: uart20 is useful during bring-up but is unnecessary in
+ * a sealed beacon. Disabling it also selects its low-leakage pin state. */
+&uart20 {
+	status = "disabled";
+};
+
+/* A fresh-measurement blink is diagnostic only. */
+&blue_led {
+	status = "disabled";
+};

@@ -106,6 +106,8 @@ west flash
 See [`docs/flashing.md`](docs/flashing.md) for flashing details and
 troubleshooting, and [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md)
 for the readout format, BLE frame layout, and roadmap.
+For battery deployment, see the audited [`low-power build profile`](docs/low-power.md),
+including measurement guidance and upstream references.
 
 ---
 
