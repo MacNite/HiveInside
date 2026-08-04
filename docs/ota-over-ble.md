@@ -36,6 +36,23 @@ produces the signed release artifact `build/<app>/zephyr/zephyr.signed.bin`;
 **that signed file**, including its MCUboot header, is the object uploaded to the
 backend and whose CRC/size are sent in BEGIN.
 
+The build also drops a byte-identical copy beside it under a name carrying the
+firmware version and the image variant, for example:
+
+```
+hiveinside-nrf54lm20a-v0.4.2-bringup.signed.bin     # normal build, console on
+hiveinside-nrf54lm20a-v0.4.2-lowpower.signed.bin    # docs/low-power.md profile
+```
+
+Upload that copy rather than `zephyr.signed.bin`. Every build configuration
+writes the same `zephyr.signed.bin` filename, so once two of them leave their
+build directories nothing distinguishes them — and serving the bring-up image to
+a sealed hive fails silently, because it boots and advertises exactly like the
+image it replaced. The variant suffix is derived from `CONFIG_SERIAL` in the
+image that was actually built, not from how the build was requested. The version
+comes from `HIVEINSIDE_FW_VERSION` in `src/hive_config.h`, so bump it there and
+the artifact name follows.
+
 > PlatformIO's Zephyr builder does **not** run sysbuild — it builds the
 > application alone and never emits a signed image or a bootable merged hex.
 > Build and flash releases with `west` (see [`flashing.md`](flashing.md)); treat
@@ -163,8 +180,12 @@ For every release:
    build manifest/configuration alongside the artifact.
 2. Check the generated partition report and the signed image size against the
    actual secondary-slot capacity; do not rely only on the nominal 449 KiB figure.
-3. Compute the backend size and CRC from the exact `zephyr.signed.bin` that is
-   uploaded (never from `zephyr.bin` or `merged.hex`).
+3. Compute the backend size and CRC from the exact signed binary that is
+   uploaded (never from `zephyr.bin` or `merged.hex`). Prefer the
+   version-stamped copy — `hiveinside-<board>-v<version>-<variant>.signed.bin` —
+   so the artifact on the backend still identifies itself after it is detached
+   from the build directory, and check its `-bringup`/`-lowpower` suffix is the
+   one you intended before publishing.
 4. Flash `merged.hex` onto a representative board over SWD, perform a complete
    BLE OTA with the release artifact, and verify the version after reboot.
 5. Run a rollback test with an intentionally non-confirming test application and

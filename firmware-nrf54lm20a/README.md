@@ -216,6 +216,21 @@ west flash            # programs MCUboot + the signed app over the on-board debu
 pio device monitor    # serial console (see below)
 ```
 
+Each `west` build also writes a version-stamped copy of the signed application
+next to `zephyr.signed.bin`, so a release artifact still identifies itself once
+it is detached from its build directory:
+
+```
+<build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.2-bringup.signed.bin
+```
+
+The version comes from `HIVEINSIDE_FW_VERSION` in `src/hive_config.h`; the
+`-bringup` / `-lowpower` suffix is derived from `CONFIG_SERIAL` in the image
+actually built, so a deployment image built with the
+[`low-power`](../docs/low-power.md) profile can never be mistaken for a
+console-enabled one when picking an OTA payload. Upload that file rather than
+`zephyr.signed.bin` — see [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md).
+
 > ⚠️ **Do not `pio run -t upload`.** With MCUboot enabled it flashes the
 > application-only image at the slot-0 offset with nothing at `0x0`, so the CPU
 > faults before `main()` runs and the device goes silent (no serial). The
@@ -278,6 +293,10 @@ firmware-nrf54lm20a/
 │   ├── prj.conf          identical copy of the root prj.conf
 │   └── app.overlay       identical copy of the root app.overlay
 ├── ncs_fixups.overlay    west/NCS-only DT fixups (see CMakeLists.txt)
+├── low-power.conf        opt-in deployment profile ─┐ see docs/low-power.md
+├── low-power.overlay     opt-in deployment DT tweaks┘
+├── cmake/
+│   └── stamp_ota_payload.cmake  version-stamped copy of zephyr.signed.bin
 └── src/
     ├── main.c            sensor loop + console print + beacon publish
     ├── beacon.[ch]       HiveHub-compatible manufacturer-data advertising

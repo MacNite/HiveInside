@@ -118,6 +118,12 @@ size means the fragment was not applied.
 The extension adds `-DCONFIG_DEBUG_THREAD_INFO=y` of its own accord for
 debugger thread awareness. It is harmless here and is not part of the profile.
 
+Both configurations write their signed image to the same filename,
+`zephyr.signed.bin`, so each build also drops a stamped copy beside it —
+`hiveinside-nrf54lm20a-v<version>-lowpower.signed.bin` here versus
+`…-bringup.signed.bin` for the console build. Use those when picking an OTA
+payload; see [`ota-over-ble.md`](ota-over-ble.md).
+
 ## Tune the two real duty cycles
 
 1. **Advertising interval.** The default is 1 s. Increasing
