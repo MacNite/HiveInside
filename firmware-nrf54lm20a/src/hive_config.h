@@ -121,6 +121,25 @@
 #define HIVE_WDT_FEED_INTERVAL_MS 20000U
 #endif
 
+/* ── OTA stall timeout ─────────────────────────────────────────────────────
+ *
+ * How long a transfer may go without a single DATA write before the node
+ * abandons it. An in-progress transfer holds the sensor loop (ota_is_active()
+ * gates it) and, because the node is connected, stops it advertising — so a
+ * relay that opens a session and then goes quiet takes the node off the air
+ * completely. The watchdog cannot help: the OTA path feeds it deliberately,
+ * since a genuine upload takes minutes.
+ *
+ * This is an inactivity timeout, not a deadline for the whole transfer, so a
+ * slow but progressing upload is never cut short. A relay streaming from HTTPS
+ * normally writes several times a second; thirty seconds of complete silence
+ * means the far end is gone or wedged. Aborting costs a retry, which is cheap
+ * next to a hive that stops reporting until someone notices.
+ */
+#ifndef HIVE_OTA_STALL_TIMEOUT_MS
+#define HIVE_OTA_STALL_TIMEOUT_MS 30000U
+#endif
+
 /* ── Sensor enables ────────────────────────────────────────────────────── */
 
 #ifndef ENABLE_SHT40

@@ -122,9 +122,10 @@ HiveScale cannot brick the sensor.
 The nRF54 advertises continuously with legacy connectable/scannable `ADV_IND`
 at the same interval used by the former `ADV_SCAN_IND` beacon. Its primary
 manufacturer payload and name+identity scan response are unchanged. A connection
-which does not send BEGIN within six seconds is disconnected, and a short link
-supervision timeout releases a vanished central. `ota_is_active()` gates the
-sensor loop while connected or transferring.
+which does not send BEGIN within six seconds is disconnected, a transfer that
+goes `HIVE_OTA_STALL_TIMEOUT_MS` (30 s) without a single DATA write is
+abandoned, and a short link supervision timeout releases a vanished central.
+`ota_is_active()` gates the sensor loop while connected or transferring.
 
 ## Safety and lifecycle
 
@@ -139,6 +140,17 @@ failure before that point leaves the image unconfirmed so MCUboot can revert it
 on the next reset. A test image does not revert merely because a peripheral is
 absent: individual sensor drivers deliberately degrade to `n/a`, while successful
 BLE publication is the health gate.
+
+Every state that gates the sensor loop is bounded, which matters because a
+gated node is off the air entirely: it takes no measurements, and because it is
+connected it is not advertising either, so HiveHub sees nothing at all. The
+watchdog cannot rescue it — the OTA path feeds the watchdog deliberately, since
+a real upload takes minutes. The bounds are: six seconds connected without
+BEGIN (arm timeout), thirty seconds receiving without a DATA write (stall
+timeout), and 1.5 seconds in `done` before the reboot fires. A transfer that is
+slow but still progressing is never cut short, and it cannot run forever either:
+`received` is capped at the size declared in BEGIN, after which any further DATA
+write is rejected.
 
 This health gate proves that the image can boot, sample, and advertise; it cannot
 prove that a future central can discover and complete another OTA session. A
@@ -187,6 +199,15 @@ no output at all. A healthy transfer prints:
 ```
 
 Where it stops tells you which of these you have:
+
+0. **`BEGIN` then silence, and the node disappears from HiveHub entirely.**
+   The relay opened a session and stopped writing. Until the stall timeout was
+   added the node stayed gated indefinitely — no measurements, no advertising,
+   for as long as the relay held the link. Recover by making the relay drop the
+   connection (resetting HiveScale is enough) or by power-cycling the node;
+   nothing is damaged and the node stays on its old image. Firmware carrying the
+   stall timeout abandons the transfer itself after thirty seconds and prints
+   `[OTA] no data for 30000 ms; abandoning transfer`.
 
 1. **Nothing at all.** The relay never opened a BLE connection. The image never
    reached the node, so nothing on the node can report it. This is a relay-side
