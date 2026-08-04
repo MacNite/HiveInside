@@ -49,9 +49,10 @@ writes the same `zephyr.signed.bin` filename, so once two of them leave their
 build directories nothing distinguishes them — and serving the bring-up image to
 a sealed hive fails silently, because it boots and advertises exactly like the
 image it replaced. The variant suffix is derived from `CONFIG_SERIAL` in the
-image that was actually built, not from how the build was requested. The version
-comes from `HIVEINSIDE_FW_VERSION` in `src/hive_config.h`, so bump it there and
-the artifact name follows.
+image that was actually built, not from how the build was requested. The version comes from
+`HIVEINSIDE_FW_VERSION_MAJOR`/`_MINOR`/`_PATCH` in `src/hive_config.h` — the
+same numbers the node advertises — so bumping them there moves the artifact
+name and the on-air version together.
 
 > PlatformIO's Zephyr builder does **not** run sysbuild — it builds the
 > application alone and never emits a signed image or a bootable merged hex.
@@ -163,6 +164,64 @@ From `firmware-nrf54lm20a/`, `pio run` compile-checks the application but cannot
 produce a release artifact. Build releases with sysbuild: `west build -b
 xiao_nrf54lm20a/nrf54lm20a/cpuapp --sysbuild .`. Release automation must publish
 the generated **signed** application binary, never the raw `zephyr.bin`.
+
+## Troubleshooting: the relay runs but the version never changes
+
+The most confusing OTA failure reports no error anywhere. The relay completes,
+the backend shows the update queued or sent, and the node keeps advertising the
+old version. Four different causes produce that identical picture, so work down
+the list rather than guessing.
+
+Watch the node's serial console across a relay attempt — build the normal
+(console) image for this, not the [`low-power`](low-power.md) profile, which has
+no output at all. A healthy transfer prints:
+
+```
+[OTA] central connected; waiting for BEGIN
+[OTA] BEGIN size=<n> crc=0x<...>
+[OTA] image verified; test upgrade requested
+[OTA] rebooting into test image
+... reboot ...
+[HiveInside] nrf54lm20a fw <new version> | USB + HiveHub BLE beacon
+[OTA] test image confirmed after first complete cycle
+```
+
+Where it stops tells you which of these you have:
+
+1. **Nothing at all.** The relay never opened a BLE connection. The image never
+   reached the node, so nothing on the node can report it. This is a relay-side
+   or pairing problem — check that the node's identity address matches the slot
+   the relay is targeting.
+
+2. **`connected` then `connection not armed; disconnecting`.** The central
+   connected but never sent BEGIN within six seconds. The relay reached the node
+   and gave up, usually because the release row or the download was missing on
+   the backend side.
+
+3. **`BEGIN` then an error state.** The node rejected the transfer and set an
+   error in the STATUS characteristic (`0x10`–`0x15`, table above). If the
+   backend does not surface STATUS, this looks like silence from the outside.
+   `0x13` CRC and `0x14` size mean the bytes that arrived are not the bytes the
+   release row describes.
+
+4. **The full happy trace, then the old version comes back.** The image
+   installed and MCUboot reverted it, or it never really differed:
+
+   * **Wrong artifact.** Uploading `zephyr.bin` instead of the signed image
+     gives a payload MCUboot cannot validate. The node reports `done` and
+     reboots, MCUboot rejects the slot, and the old image runs again. Upload the
+     version-stamped `…signed.bin` described above.
+   * **Rollback.** A test image confirms only after one complete sensor cycle
+     *and* a successful BLE publication. If it boots but cannot advertise, it
+     never confirms and reverts within `OTA_CONFIRM_DEADLINE_MS` (two minutes).
+     The banner line appears with the new version, then the node resets back.
+   * **The version was never bumped in the firmware.** The number the backend
+     sees comes from `HIVEINSIDE_FW_VERSION_MAJOR`/`_MINOR`/`_PATCH` in
+     `src/hive_config.h`, not from the version typed into the upload form. If
+     the binary was built without changing those, the OTA succeeded and the node
+     is genuinely running the new image — it just advertises the old number. The
+     banner line above is the giveaway: it shows the same version before and
+     after. Bump the three numbers, rebuild, and re-upload.
 
 ## Production release and recovery checklist
 

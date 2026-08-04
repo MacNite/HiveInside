@@ -224,7 +224,8 @@ it is detached from its build directory:
 <build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.2-bringup.signed.bin
 ```
 
-The version comes from `HIVEINSIDE_FW_VERSION` in `src/hive_config.h`; the
+The version comes from `HIVEINSIDE_FW_VERSION_MAJOR`/`_MINOR`/`_PATCH` in
+`src/hive_config.h` — the same numbers the node advertises; the
 `-bringup` / `-lowpower` suffix is derived from `CONFIG_SERIAL` in the image
 actually built, so a deployment image built with the
 [`low-power`](../docs/low-power.md) profile can never be mistaken for a

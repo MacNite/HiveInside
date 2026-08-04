@@ -52,17 +52,21 @@ set_property(DIRECTORY APPEND
 
 file(READ ${hive_config_header} hive_config_contents)
 
-# hive_config.h is the single source of truth for the advertised version, so
-# read it rather than repeating the number here where the two could drift.
-# HIVEINSIDE_FW_VERSION_MAJOR and friends do not match: the name must be
-# followed by whitespace and then a quote.
-string(REGEX MATCH
-  "define[ \t]+HIVEINSIDE_FW_VERSION[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\""
-  hive_version_matched "${hive_config_contents}")
-if(hive_version_matched)
-  set(hive_fw_version "${CMAKE_MATCH_1}")
-else()
-  set(hive_fw_version "")
+# Read the same MAJOR/MINOR/PATCH numbers beacon.c advertises, not the derived
+# HIVEINSIDE_FW_VERSION string. Those bytes are what the backend sees, so an
+# artifact named v0.4.3 is only honest if it advertises 0.4.3.
+set(hive_fw_version "")
+foreach(component MAJOR MINOR PATCH)
+  string(REGEX MATCH
+    "define[ \t]+HIVEINSIDE_FW_VERSION_${component}[ \t]+([0-9]+)"
+    hive_component_matched "${hive_config_contents}")
+  if(hive_component_matched)
+    list(APPEND hive_version_parts "${CMAKE_MATCH_1}")
+  endif()
+endforeach()
+list(LENGTH hive_version_parts hive_version_part_count)
+if(hive_version_part_count EQUAL 3)
+  list(JOIN hive_version_parts "." hive_fw_version)
 endif()
 
 string(REGEX MATCH

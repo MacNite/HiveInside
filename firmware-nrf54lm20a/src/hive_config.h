@@ -16,22 +16,41 @@
  *   * SHT40 — external temperature + humidity sensor on the XIAO I²C header.
  *
  * Every value can be overridden from the build (e.g. PlatformIO build_flags
- * or -DEXTRA_CFLAGS) without editing this file.
+ * or -DEXTRA_CFLAGS) without editing this file. The firmware version is the
+ * one deliberate exception — see the comment on it below.
  */
 #pragma once
 
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
-#ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.4.2"
-#endif
-/* Keep the advertised representation numeric and fixed-width.  These values
- * intentionally do not build HIVEINSIDE_FW_VERSION with preprocessor string
- * concatenation: the console continues to use the same plain-string-literal
- * mechanism as the last known-good firmware. */
-#define HIVEINSIDE_FW_VERSION_MAJOR 0U
-#define HIVEINSIDE_FW_VERSION_MINOR 4U
-#define HIVEINSIDE_FW_VERSION_PATCH 2U
+/* Firmware version — single source of truth.
+ *
+ * These three numbers are the version that actually leaves the device: beacon.c
+ * puts them in the scan-response identity record, and that record is the only
+ * way a relay or the backend can tell which firmware a node is running. The
+ * console banner string and the release artifact name (see ../CMakeLists.txt)
+ * are both derived from them.
+ *
+ * They used to be maintained alongside a separate "0.4.2" string literal.
+ * Bumping only the string produced firmware that installed correctly over the
+ * air and then went on advertising the old version — from the backend that is
+ * indistinguishable from an OTA that silently did nothing, because there is no
+ * error anywhere to report. Deriving the string removes that failure mode.
+ *
+ * This is the one setting in this file deliberately *not* overridable from the
+ * build: a release version is a committed fact, and a -D override would let the
+ * stamped artifact name disagree with the bytes on the air. Bump it here.
+ */
+#define HIVEINSIDE_FW_VERSION_MAJOR 0
+#define HIVEINSIDE_FW_VERSION_MINOR 4
+#define HIVEINSIDE_FW_VERSION_PATCH 2
+
+#define HIVEINSIDE_STRINGIFY_(value) #value
+#define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
+#define HIVEINSIDE_FW_VERSION                                 \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_MAJOR) "." \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_MINOR) "." \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_PATCH)
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
