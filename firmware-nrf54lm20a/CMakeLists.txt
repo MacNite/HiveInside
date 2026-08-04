@@ -24,6 +24,7 @@ target_sources(app PRIVATE
   src/hive_i2c.c
   src/power.c
   src/sht40.c
+  src/watchdog.c
   src/accel.c
   src/mic.c
   src/battery.c

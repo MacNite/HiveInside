@@ -84,3 +84,13 @@
 		};
 	};
 };
+
+/* Watchdog for unattended operation (src/watchdog.c).
+ *
+ * Both nRF54LM20A watchdog instances ship disabled in the SoC devicetree.
+ * wdt31 is chosen over wdt30 because wdt30 is compiled out of the SoC
+ * devicetree entirely under a non-secure address map, so wdt31 is the instance
+ * that exists in every build variant. */
+&wdt31 {
+	status = "okay";
+};

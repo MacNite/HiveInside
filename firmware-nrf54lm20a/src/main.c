@@ -24,6 +24,7 @@
 #include "ota.h"
 #include "power.h"
 #include "sht40.h"
+#include "watchdog.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
@@ -72,6 +73,26 @@ static void measurement_led_blink(void)
 {
 }
 #endif
+
+/* Wait out the interval between sensor cycles in watchdog-sized slices.
+ *
+ * A single k_msleep(MEASURE_INTERVAL_MS) would force the watchdog timeout to
+ * exceed the whole sampling period, which would let a driver hang go unnoticed
+ * for five minutes. Sleeping in slices keeps the timeout sized against one
+ * blocking call instead. The slice boundary is the only thing that changes:
+ * the CPU is still idle for the entire interval apart from the feed itself. */
+static void idle_between_cycles(void)
+{
+	uint32_t remaining = MEASURE_INTERVAL_MS;
+
+	while (remaining > 0U) {
+		uint32_t slice = MIN(remaining, (uint32_t)HIVE_WDT_FEED_INTERVAL_MS);
+
+		k_msleep((int32_t)slice);
+		remaining -= slice;
+		hive_watchdog_feed();
+	}
+}
 
 static void print_readout(const struct measurement *m)
 {
@@ -157,6 +178,11 @@ int main(void)
 	measurement_led_init();
 	beacon_err = beacon_init();
 	ota_init();
+	/* Armed after the one-time initialisation above, which is not covered by
+	 * the watchdog: a hang in a driver's init would leave the node dark rather
+	 * than reset-looping, and MCUboot's own rollback deadline below is the
+	 * safety net for an image that cannot get this far. */
+	hive_watchdog_init();
 	confirmation_pending = !boot_is_img_confirmed();
 	/* Do not confirm a test image merely because main() was reached. Wait until
 	 * one complete sensor cycle has run and Bluetooth has successfully published
@@ -176,7 +202,12 @@ int main(void)
 	}
 
 	while (true) {
+		hive_watchdog_feed();
+
 		if (ota_is_active()) {
+			/* A firmware upload legitimately takes minutes. Polling here
+			 * means the main thread is healthy, so keep feeding: the
+			 * watchdog must not cut a transfer short. */
 			k_msleep(100);
 			continue;
 		}
@@ -214,7 +245,7 @@ int main(void)
 			}
 		}
 
-		k_msleep(MEASURE_INTERVAL_MS);
+		idle_between_cycles();
 	}
 
 	return 0;

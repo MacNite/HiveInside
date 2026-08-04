@@ -9,7 +9,12 @@ for a measurement of the assembled board.
 ## What the firmware already gets right
 
 * `k_msleep()` blocks the application instead of polling. Zephyr can idle the
-  CPU while the Bluetooth controller schedules advertising events.
+  CPU while the Bluetooth controller schedules advertising events. The idle
+  wait is split into watchdog-sized slices, which costs a few wake-ups per
+  interval against roughly 300 advertising events in the same window.
+* `CONFIG_TICKLESS_KERNEL=y` is pinned in `prj.conf`. It is the Zephyr default,
+  but it is the single assumption the whole idle story rests on: without it the
+  CPU would wake on every system tick for five minutes at a time.
 * The nRF54 main regulator is configured for DC/DC operation by Seeed's board
   definition (`&vregmain { regulator-initial-mode = <NRF5X_REG_MODE_DCDC>; }`
   in `nrf54lm20a_cpuapp_common.dtsi`), so the application does not have to.
@@ -41,10 +46,11 @@ peripheral and its pins active solely for an unattended console is needless.
 
 Use the normal build for troubleshooting. The deployment profile has no serial
 output at all, so a wedged driver, a failed LDO1 enable, or a fatal error is
-invisible — the beacon simply keeps repeating the last good measurement. There
-is no watchdog in this firmware either; the only automatic recovery is the
-MCUboot rollback deadline in `main.c`, which is armed for test images only.
-Treat a hive that stops changing its readings as a site visit.
+invisible on the wire — the beacon keeps repeating the last good measurement.
+The watchdog (`src/watchdog.c`, armed in both builds) is what turns that from
+permanent into a reset, but it is recovery, not reporting: a node that resets
+repeatedly looks the same from HiveHub as one that is healthy. Treat readings
+that stop changing, or that jump back to boot defaults, as a site visit.
 
 Both file names above are relative and are resolved for you: Zephyr looks up
 `EXTRA_CONF_FILE` entries under the application config directory, and runs the

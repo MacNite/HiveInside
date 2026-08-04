@@ -112,6 +112,24 @@ therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
 **HiveInside (nRF54LM20A) — beacon**.
 
+### Watchdog
+
+A sealed node has no console and nobody watching it, so a hang inside a sensor
+driver — a stuck I²C transfer, a `dmic_read()` that never returns — would leave
+the firmware alive enough to keep advertising the last good measurement
+indefinitely. From HiveHub that looks like a hive that simply stopped changing.
+
+`src/watchdog.c` arms `wdt31` with a 60 s timeout and `main.c` feeds it, both at
+the top of each cycle and every 20 s through the long idle between cycles, so
+the timeout is sized against one stuck driver call rather than against
+`MEASURE_INTERVAL_MS`. The OTA polling loop feeds it too: a firmware upload
+legitimately takes minutes and must not be cut short. Adjust with
+`HIVE_WDT_TIMEOUT_MS` / `HIVE_WDT_FEED_INTERVAL_MS` in `hive_config.h`.
+
+The watchdog is recovery, not reporting. It resets a wedged node; it cannot
+tell you that it happened. A node whose readings jump back to boot defaults is
+the symptom to look for.
+
 ### Radio sleep and battery life
 
 For the full code/hardware audit, production build profile, measurement method,
@@ -269,6 +287,7 @@ firmware-nrf54lm20a/
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
     ├── fft.[ch]          dependency-free radix-2 FFT + band reduction
     ├── power.[ch]        nPM1300 LDO1 → 3.3 V sensor rail
+    ├── watchdog.[ch]     wdt31 hardware watchdog, fed from the main loop
     ├── sht40.[ch]        SHT40 climate
     ├── accel.[ch]        LSM6DS3TR-C / LIS3DH vibration + FFT bands
     ├── mic.[ch]          PDM microphone level + FFT bands

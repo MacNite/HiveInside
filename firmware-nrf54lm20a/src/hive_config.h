@@ -80,6 +80,28 @@
 #define MEASUREMENT_LED_BLINK_MS 100
 #endif
 
+/* ── Watchdog ──────────────────────────────────────────────────────────────
+ *
+ * The timeout has to clear the longest stretch the main thread can legitimately
+ * spend inside one blocking call — the ~2.5 s vibration capture, the ~0.7 s
+ * microphone capture, plus per-transfer I²C timeouts — with enough margin that
+ * a slow but healthy cycle is never mistaken for a hang. One minute is roughly
+ * fifteen times a normal complete cycle.
+ *
+ * It is deliberately far shorter than MEASURE_INTERVAL_MS. main.c splits the
+ * idle wait between cycles into HIVE_WDT_FEED_INTERVAL_MS slices and feeds
+ * after each, so the timeout is sized against a single stuck driver call rather
+ * than against the sampling period. The cost is a handful of extra wake-ups per
+ * interval, which is small next to the ~300 advertising events in the same
+ * window.
+ */
+#ifndef HIVE_WDT_TIMEOUT_MS
+#define HIVE_WDT_TIMEOUT_MS 60000U
+#endif
+#ifndef HIVE_WDT_FEED_INTERVAL_MS
+#define HIVE_WDT_FEED_INTERVAL_MS 20000U
+#endif
+
 /* ── Sensor enables ────────────────────────────────────────────────────── */
 
 #ifndef ENABLE_SHT40
