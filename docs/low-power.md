@@ -65,10 +65,58 @@ the sysbuild, CMake-cache, environment, and local-variable scopes rather than
 taking only the highest-precedence one. Both overlays end up in the DTS list,
 fix-up first.
 
-> **Status: not yet build-verified.** CI compiles only the default
-> configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`, so
-> this profile is not covered. Run the command above once on your NCS workspace
-> before trusting it in the field, and before flashing a sealed node.
+> **Status: CI does not cover this profile.** CI compiles only the default
+> configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`.
+> Build the profile yourself after changing anything it touches, and before
+> flashing a sealed node.
+
+## In VS Code / VSCodium (nRF Connect extension)
+
+Keep the bring-up image and the deployment image as two build configurations,
+so both `merged.hex` files exist side by side and you can flash either one.
+
+In **APPLICATIONS** → the application → **Add build configuration**:
+
+* **Board target** — the same one the existing configuration uses.
+* **Build directory name** — change it from `build` to e.g. `build_lowpower`.
+  This is what separates the two; reusing `build` collides with the bring-up
+  configuration.
+* **Use sysbuild** — required. Without it there is no bootable image; see
+  [`flashing.md`](flashing.md).
+* **Extra CMake arguments** —
+  `-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
+
+> ⚠️ **Use the extra-CMake-arguments field, not the "configuration files"
+> field.** The form's base configuration field maps to `CONF_FILE`, which
+> *replaces* `prj.conf` instead of adding to it. Pointing that at
+> `low-power.conf` produces a build with no Bluetooth, no MCUboot image
+> manager, and no sensor stack, and it fails while compiling `ota.c`:
+>
+> ```
+> error: 'CONFIG_IMG_BLOCK_BUF_SIZE' undeclared here (not in a function)
+> ```
+>
+> The give-away is `-DCONF_FILE="low-power.conf"` (no `EXTRA_`) in the west
+> command line the build prints, and a Kconfig section that merges
+> `low-power.conf` without ever merging `prj.conf`.
+
+Check three things in the build log before trusting the result:
+
+1. The west command line contains `-DEXTRA_CONF_FILE` and
+   `-DEXTRA_DTC_OVERLAY_FILE`, and no bare `-DCONF_FILE`.
+2. The application image merges **both** configurations, in this order:
+   `Merged configuration '.../prj.conf'` then
+   `Merged configuration '.../low-power.conf'`.
+3. All three overlays are listed: `app.overlay`, `ncs_fixups.overlay`, and
+   `low-power.overlay`.
+
+Then compare the reported `FLASH` size against the bring-up build. The
+deployment image must come out visibly smaller — the UART driver, console,
+`printk()` and the cbprintf floating-point formatter are all gone. An identical
+size means the fragment was not applied.
+
+The extension adds `-DCONFIG_DEBUG_THREAD_INFO=y` of its own accord for
+debugger thread awareness. It is harmless here and is not part of the profile.
 
 ## Tune the two real duty cycles
 
