@@ -75,7 +75,7 @@ HiveInside/
 │   ├── sysbuild/         MCUboot child-image config for `west --sysbuild`
 │   └── src/              main + sensor + FFT + beacon + OTA modules
 ├── enclosure/            Current 3D-printable enclosure files
-├── docs/                 wiring, flashing, OTA, Home Assistant
+├── docs/                 wiring, building, flashing, OTA, Home Assistant
 └── README.md
 ```
 
@@ -103,7 +103,8 @@ west flash
 > ⚠️ `pio run -t upload` is deliberately blocked — it would flash an
 > application-only image with nothing at `0x0` and brick the boot chain.
 
-See [`docs/flashing.md`](docs/flashing.md) for flashing details and
+See [`docs/vscode-build.md`](docs/vscode-build.md) to build it from VS Code or
+VSCodium, [`docs/flashing.md`](docs/flashing.md) for flashing details and
 troubleshooting, and [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md)
 for the readout format, BLE frame layout, and roadmap.
 For battery deployment, see the audited [`low-power build profile`](docs/low-power.md),

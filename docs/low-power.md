@@ -72,67 +72,23 @@ fix-up first.
 
 ## In VS Code / VSCodium (nRF Connect extension)
 
-Keep the bring-up image and the deployment image as two build configurations,
-so both `merged.hex` files exist side by side and you can flash either one.
+Keep the bring-up image and the deployment image as two build configurations so
+both exist side by side and you can flash either one. The complete setup —
+every field, the verification checklist, and the two ways this form invites you
+to build a quietly broken image — is in
+[`vscode-build.md`](vscode-build.md). In short, the deployment configuration
+differs from the bring-up one in exactly three fields:
 
-In **APPLICATIONS** → the application → **Add build configuration**:
+| Field | Value |
+|---|---|
+| Build directory name | `build_lowpower` |
+| Extra Kconfig fragments | `low-power.conf` |
+| Extra Devicetree overlays | `low-power.overlay` |
 
-* **Board target** — the same one the existing configuration uses.
-* **Build directory name** — change it from `build` to e.g. `build_lowpower`.
-  This is what separates the two; reusing `build` collides with the bring-up
-  configuration.
-* **Use sysbuild** — required. Without it there is no bootable image; see
-  [`flashing.md`](flashing.md).
-* **Extra Kconfig fragments** — `low-power.conf`
-* **Extra Devicetree overlays** — `low-power.overlay`
-
-Leave the two **Base** fields and **Snippets** empty. Nothing needs to go in
-**Extra CMake arguments**; the two fields above already map to
-`EXTRA_CONF_FILE` and `EXTRA_DTC_OVERLAY_FILE`. (Passing them by hand as
-`-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
-works identically, if you prefer.)
-
-> ⚠️ **Do not use "Base configuration files (Kconfig fragments)".** Despite the
-> parenthetical, that field is `CONF_FILE`: it *replaces* `prj.conf` rather than
-> adding to it. Pointing it at `low-power.conf` produces a build with no
-> Bluetooth, no MCUboot image manager and no sensor stack, which fails while
-> compiling `ota.c`:
->
-> ```
-> error: 'CONFIG_IMG_BLOCK_BUF_SIZE' undeclared here (not in a function)
-> ```
->
-> The give-aways are `-DCONF_FILE="low-power.conf"` (no `EXTRA_`) in the west
-> command line the build prints, and a Kconfig section that merges
-> `low-power.conf` without ever merging `prj.conf`. The field you want is
-> **Extra Kconfig fragments**, one row below it. The same distinction applies to
-> **Base Devicetree overlays** versus **Extra Devicetree overlays**: the base
-> field replaces `app.overlay`, which would drop the PMIC pin fix, the PDM
-> microphone and the watchdog.
-
-Check three things in the build log before trusting the result:
-
-1. The west command line contains `-DEXTRA_CONF_FILE` and
-   `-DEXTRA_DTC_OVERLAY_FILE`, and no bare `-DCONF_FILE`.
-2. The application image merges **both** configurations, in this order:
-   `Merged configuration '.../prj.conf'` then
-   `Merged configuration '.../low-power.conf'`.
-3. All three overlays are listed: `app.overlay`, `ncs_fixups.overlay`, and
-   `low-power.overlay`.
-
-Then compare the reported `FLASH` size against the bring-up build. The
-deployment image must come out visibly smaller — the UART driver, console,
-`printk()` and the cbprintf floating-point formatter are all gone. An identical
-size means the fragment was not applied.
-
-The extension adds `-DCONFIG_DEBUG_THREAD_INFO=y` of its own accord for
-debugger thread awareness. It is harmless here and is not part of the profile.
-
-Both configurations write their signed image to the same filename,
-`zephyr.signed.bin`, so each build also drops a stamped copy beside it —
-`hiveinside-nrf54lm20a-v<version>-lowpower.signed.bin` here versus
-`…-bringup.signed.bin` for the console build. Use those when picking an OTA
-payload; see [`ota-over-ble.md`](ota-over-ble.md).
+Both **Base** fields stay empty. They are `CONF_FILE` and `DTC_OVERLAY_FILE`,
+which *replace* `prj.conf` and `app.overlay` rather than adding to them —
+putting the profile there costs you Bluetooth and the MCUboot image manager, or
+silently the nPM1300 pin fix, the PDM microphone and the watchdog.
 
 ## Tune the two real duty cycles
 
