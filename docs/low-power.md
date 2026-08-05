@@ -83,22 +83,32 @@ In **APPLICATIONS** → the application → **Add build configuration**:
   configuration.
 * **Use sysbuild** — required. Without it there is no bootable image; see
   [`flashing.md`](flashing.md).
-* **Extra CMake arguments** —
-  `-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
+* **Extra Kconfig fragments** — `low-power.conf`
+* **Extra Devicetree overlays** — `low-power.overlay`
 
-> ⚠️ **Use the extra-CMake-arguments field, not the "configuration files"
-> field.** The form's base configuration field maps to `CONF_FILE`, which
-> *replaces* `prj.conf` instead of adding to it. Pointing that at
-> `low-power.conf` produces a build with no Bluetooth, no MCUboot image
-> manager, and no sensor stack, and it fails while compiling `ota.c`:
+Leave the two **Base** fields and **Snippets** empty. Nothing needs to go in
+**Extra CMake arguments**; the two fields above already map to
+`EXTRA_CONF_FILE` and `EXTRA_DTC_OVERLAY_FILE`. (Passing them by hand as
+`-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
+works identically, if you prefer.)
+
+> ⚠️ **Do not use "Base configuration files (Kconfig fragments)".** Despite the
+> parenthetical, that field is `CONF_FILE`: it *replaces* `prj.conf` rather than
+> adding to it. Pointing it at `low-power.conf` produces a build with no
+> Bluetooth, no MCUboot image manager and no sensor stack, which fails while
+> compiling `ota.c`:
 >
 > ```
 > error: 'CONFIG_IMG_BLOCK_BUF_SIZE' undeclared here (not in a function)
 > ```
 >
-> The give-away is `-DCONF_FILE="low-power.conf"` (no `EXTRA_`) in the west
+> The give-aways are `-DCONF_FILE="low-power.conf"` (no `EXTRA_`) in the west
 > command line the build prints, and a Kconfig section that merges
-> `low-power.conf` without ever merging `prj.conf`.
+> `low-power.conf` without ever merging `prj.conf`. The field you want is
+> **Extra Kconfig fragments**, one row below it. The same distinction applies to
+> **Base Devicetree overlays** versus **Extra Devicetree overlays**: the base
+> field replaces `app.overlay`, which would drop the PMIC pin fix, the PDM
+> microphone and the watchdog.
 
 Check three things in the build log before trusting the result:
 
