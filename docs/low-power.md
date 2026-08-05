@@ -19,8 +19,9 @@ for a measurement of the assembled board.
   definition (`&vregmain { regulator-initial-mode = <NRF5X_REG_MODE_DCDC>; }`
   in `nrf54lm20a_cpuapp_common.dtsi`), so the application does not have to.
 * PDM is stopped after capture, and the accelerometer is put in power-down.
-* More importantly, nPM1300 LDO1 (the IMU/microphone rail) is disabled after
-  both captures and enabled only immediately before the next acquisition.
+* More importantly, nPM1300 LDO1 (the IMU/microphone rail) and the upstream
+  `power_en` sensor gate are disabled after both captures and enabled only
+  immediately before the next acquisition.
 * The SHT40 uses its lowest-power, lowest-precision single-shot command rather
   than periodic measurement mode.
 * BLE data is updated once per measurement. The controller repeats it without
@@ -39,10 +40,14 @@ west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
   -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
 ```
 
-The profile disables the diagnostic UART, its console/`printk()` support, and
-the measurement LED. BLE measurement advertisements and BLE OTA are unchanged.
-The UART is the most important idle-only firmware difference: leaving a serial
-peripheral and its pins active solely for an unattended console is needless.
+The profile disables the diagnostic UART, its console/`printk()` support, the
+measurement LED, the unused external SPI flash node, the PMIC LED child device,
+and the boot-on defaults for the IMU/microphone sensor island. BLE measurement
+advertisements and BLE OTA are unchanged. The UART is the most important
+idle-only firmware difference: leaving a serial peripheral and its pins active
+solely for an unattended console is needless. The flash and rail changes follow
+Seeed's board-specific low-power notes: unused flash and always-on sensor rails
+can become leakage paths even when the CPU is asleep.
 
 Use the normal build for troubleshooting. The deployment profile has no serial
 output at all, so a wedged driver, a failed LDO1 enable, or a fatal error is
@@ -145,8 +150,9 @@ reliable asynchronous discovery.
   SWD probe can prevent the lowest hardware state or back-power I/O.
 * Capture at least one whole five-minute cycle. Record idle baseline,
   advertising spikes, sensor-rail enable/capture, and total integrated charge.
-* Verify LDO1 is actually off between cycles. If it is not, check the nPM1300
-  I2C pin override and the firmware's `[PWR]` errors with a diagnostic build.
+* Verify LDO1 and `power_en` are actually off between cycles. If they are not,
+  check the nPM1300 I2C pin override and the firmware's `[PWR]` errors with a
+  diagnostic build.
 * Check for external SHT40 breakout pull-ups or regulator LEDs. A convenient
   breakout can consume much more than the sensor itself; use a bare low-leakage
   board or switch its supply in the final hardware.
@@ -156,7 +162,7 @@ reliable asynchronous discovery.
 ## Source basis and limits
 
 The recommendations were checked against the complete firmware tree and these
-upstream resources (accessed 2026-08-03):
+upstream resources (accessed 2026-08-05):
 
 * [Zephyr system power management](https://docs.zephyrproject.org/latest/services/pm/system.html)
   explains idle/system states and residency decisions.
@@ -164,6 +170,10 @@ upstream resources (accessed 2026-08-03):
   covers device suspend and runtime PM.
 * [Zephyr system-off sample](https://docs.zephyrproject.org/latest/samples/boards/nordic/system_off/README.html)
   documents wake/reset behavior for Nordic targets.
+* [Seeed's XIAO nRF54LM20A low-power guide](https://wiki.seeedstudio.com/xiao_nrf54lm20a_with_low_power/)
+  documents the board's measured light-sleep/system-off currents and calls out
+  the external flash, PMIC LEDs, `power_en`, and LDO1 as low-power-relevant
+  devicetree nodes.
 * [Seeed's Zephyr low-power example](https://github.com/Seeed-Studio/platform-seeedboards/tree/main/examples/zephyr-lowpower)
   explicitly suspends the console before system-off.
 * [Seeed's XIAO nRF54LM20A board definition](https://github.com/Seeed-Studio/platform-seeedboards/tree/main/zephyr/boards/arm/xiao_nrf54lm20a)

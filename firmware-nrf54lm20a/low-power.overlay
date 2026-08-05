@@ -19,3 +19,37 @@
 &blue_led {
 	status = "disabled";
 };
+
+/* The external 8 MB SPI NOR is not used by the measurement beacon or MCUboot's
+ * fixed on-chip RRAM slots. Seeed's System OFF example calls out the flash as a
+ * leakage source unless it is explicitly put into deep power-down and its SPI
+ * pins are held in known states. The always-advertising profile does not enter
+ * System OFF, so the safest app-level saving is simpler: keep the flash driver
+ * from initialising this unused part at all. */
+&py25q64 {
+	status = "disabled";
+};
+
+/* Production nodes do not need the nPM1300 LED engine. The charger/fuel-gauge
+ * and regulator functions stay enabled through the PMIC MFD; only the optional
+ * LED child device is suppressed to avoid any autonomous LED current. */
+&pmic_leds {
+	status = "disabled";
+};
+
+/* The Sense IMU/microphone island is enabled explicitly by src/power.c for each
+ * measurement cycle. Do not let the board DTS keep that upstream GPIO gate on
+ * before main() runs or after the first cycle has completed. */
+&power_en {
+	/delete-property/ regulator-boot-on;
+};
+
+/* Likewise, LDO1 is brought up to 3.3 V at runtime immediately before the IMU
+ * and PDM microphone are sampled, then disabled again between cycles. */
+&pmic {
+	regulators {
+		LDO1 {
+			/delete-property/ regulator-boot-on;
+		};
+	};
+};

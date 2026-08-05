@@ -56,6 +56,23 @@ static int enable_regulator(const struct device *dev, const char *name)
 	return 0;
 }
 
+static int disable_regulator(const struct device *dev, const char *name)
+{
+	if (!device_is_ready(dev)) {
+		printk("[PWR] %s regulator not ready\n", name);
+		return -ENODEV;
+	}
+
+	int err = regulator_disable(dev);
+
+	if (err != 0 && err != -EALREADY) {
+		printk("[PWR] %s disable failed (%d)\n", name, err);
+		return err;
+	}
+
+	return 0;
+}
+
 void power_init(void)
 {
 	/* The board DTS marks this regulator boot-on, but enabling it explicitly
@@ -93,8 +110,17 @@ int power_sensor_rail_enable(void)
 		return 0;
 	}
 
-	int err = enable_regulator(ldo1, "LDO1");
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+	int err = enable_regulator(power_en, "sensor power gate");
 
+	if (err != 0) {
+		return err;
+	}
+#else
+	int err;
+#endif
+
+	err = enable_regulator(ldo1, "LDO1");
 	if (err != 0) {
 		return err;
 	}
@@ -110,13 +136,24 @@ int power_sensor_rail_disable(void)
 		return 0;
 	}
 
-	int err = regulator_disable(ldo1);
+	int err = disable_regulator(ldo1, "LDO1");
 
-	if (err != 0 && err != -EALREADY) {
-		printk("[PWR] LDO1 disable failed (%d)\n", err);
+	if (err != 0) {
 		return err;
 	}
 	sensor_rail_enabled = false;
+
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+	/* Seeed's low-power guidance removes the sensor power gate's boot-on state
+	 * for minimum leakage. Mirror that at runtime: once LDO1 is off, also drop
+	 * the upstream fixed regulator so the IMU/microphone island is not held in a
+	 * powered standby path between five-minute measurement cycles. */
+	err = disable_regulator(power_en, "sensor power gate");
+	if (err != 0) {
+		return err;
+	}
+#endif
+
 	return 0;
 }
 
