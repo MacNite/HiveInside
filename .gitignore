@@ -9,6 +9,7 @@
 *.bin
 *.elf
 */build
+*/build_lowpower
 *.log
 
 # Editor

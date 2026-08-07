@@ -16,22 +16,41 @@
  *   * SHT40 — external temperature + humidity sensor on the XIAO I²C header.
  *
  * Every value can be overridden from the build (e.g. PlatformIO build_flags
- * or -DEXTRA_CFLAGS) without editing this file.
+ * or -DEXTRA_CFLAGS) without editing this file. The firmware version is the
+ * one deliberate exception — see the comment on it below.
  */
 #pragma once
 
 /* ── Identity ──────────────────────────────────────────────────────────── */
 
-#ifndef HIVEINSIDE_FW_VERSION
-#define HIVEINSIDE_FW_VERSION "0.4.2"
-#endif
-/* Keep the advertised representation numeric and fixed-width.  These values
- * intentionally do not build HIVEINSIDE_FW_VERSION with preprocessor string
- * concatenation: the console continues to use the same plain-string-literal
- * mechanism as the last known-good firmware. */
-#define HIVEINSIDE_FW_VERSION_MAJOR 0U
-#define HIVEINSIDE_FW_VERSION_MINOR 4U
-#define HIVEINSIDE_FW_VERSION_PATCH 2U
+/* Firmware version — single source of truth.
+ *
+ * These three numbers are the version that actually leaves the device: beacon.c
+ * puts them in the scan-response identity record, and that record is the only
+ * way a relay or the backend can tell which firmware a node is running. The
+ * console banner string and the release artifact name (see ../CMakeLists.txt)
+ * are both derived from them.
+ *
+ * They used to be maintained alongside a separate "0.4.2" string literal.
+ * Bumping only the string produced firmware that installed correctly over the
+ * air and then went on advertising the old version — from the backend that is
+ * indistinguishable from an OTA that silently did nothing, because there is no
+ * error anywhere to report. Deriving the string removes that failure mode.
+ *
+ * This is the one setting in this file deliberately *not* overridable from the
+ * build: a release version is a committed fact, and a -D override would let the
+ * stamped artifact name disagree with the bytes on the air. Bump it here.
+ */
+#define HIVEINSIDE_FW_VERSION_MAJOR 0
+#define HIVEINSIDE_FW_VERSION_MINOR 4
+#define HIVEINSIDE_FW_VERSION_PATCH 4
+
+#define HIVEINSIDE_STRINGIFY_(value) #value
+#define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
+#define HIVEINSIDE_FW_VERSION                                 \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_MAJOR) "." \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_MINOR) "." \
+	HIVEINSIDE_STRINGIFY(HIVEINSIDE_FW_VERSION_PATCH)
 #ifndef HIVEINSIDE_BOARD
 #define HIVEINSIDE_BOARD "nrf54lm20a"
 #endif
@@ -78,6 +97,47 @@
  * measurement has successfully been handed to the Bluetooth controller. */
 #ifndef MEASUREMENT_LED_BLINK_MS
 #define MEASUREMENT_LED_BLINK_MS 100
+#endif
+
+/* ── Watchdog ──────────────────────────────────────────────────────────────
+ *
+ * The timeout has to clear the longest stretch the main thread can legitimately
+ * spend inside one blocking call — the ~2.5 s vibration capture, the ~0.7 s
+ * microphone capture, plus per-transfer I²C timeouts — with enough margin that
+ * a slow but healthy cycle is never mistaken for a hang. One minute is roughly
+ * fifteen times a normal complete cycle.
+ *
+ * It is deliberately far shorter than MEASURE_INTERVAL_MS. main.c splits the
+ * idle wait between cycles into HIVE_WDT_FEED_INTERVAL_MS slices and feeds
+ * after each, so the timeout is sized against a single stuck driver call rather
+ * than against the sampling period. The cost is a handful of extra wake-ups per
+ * interval, which is small next to the ~300 advertising events in the same
+ * window.
+ */
+#ifndef HIVE_WDT_TIMEOUT_MS
+#define HIVE_WDT_TIMEOUT_MS 60000U
+#endif
+#ifndef HIVE_WDT_FEED_INTERVAL_MS
+#define HIVE_WDT_FEED_INTERVAL_MS 20000U
+#endif
+
+/* ── OTA stall timeout ─────────────────────────────────────────────────────
+ *
+ * How long a transfer may go without a single DATA write before the node
+ * abandons it. An in-progress transfer holds the sensor loop (ota_is_active()
+ * gates it) and, because the node is connected, stops it advertising — so a
+ * relay that opens a session and then goes quiet takes the node off the air
+ * completely. The watchdog cannot help: the OTA path feeds it deliberately,
+ * since a genuine upload takes minutes.
+ *
+ * This is an inactivity timeout, not a deadline for the whole transfer, so a
+ * slow but progressing upload is never cut short. A relay streaming from HTTPS
+ * normally writes several times a second; thirty seconds of complete silence
+ * means the far end is gone or wedged. Aborting costs a retry, which is cheap
+ * next to a hive that stops reporting until someone notices.
+ */
+#ifndef HIVE_OTA_STALL_TIMEOUT_MS
+#define HIVE_OTA_STALL_TIMEOUT_MS 30000U
 #endif
 
 /* ── Sensor enables ────────────────────────────────────────────────────── */

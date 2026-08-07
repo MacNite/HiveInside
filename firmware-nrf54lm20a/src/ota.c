@@ -2,6 +2,7 @@
  * flash write completes, providing the relay's stream flow control. */
 #include "ota.h"
 #include "beacon.h"
+#include "hive_config.h"
 
 #include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/conn.h>
@@ -17,6 +18,7 @@
 #include <zephyr/sys/reboot.h>
 
 #define OTA_ARM_TIMEOUT K_SECONDS(6)
+#define OTA_STALL_TIMEOUT K_MSEC(HIVE_OTA_STALL_TIMEOUT_MS)
 #define OTA_REBOOT_DELAY K_MSEC(1500)
 #define OTA_SUPERVISION_TIMEOUT 200U /* 2 seconds, units of 10 ms */
 
@@ -34,8 +36,10 @@ static uint8_t state, error;
 
 static void arm_timeout_handler(struct k_work *work);
 static void reboot_handler(struct k_work *work);
+static void stall_timeout_handler(struct k_work *work);
 K_WORK_DELAYABLE_DEFINE(arm_timeout_work, arm_timeout_handler);
 K_WORK_DELAYABLE_DEFINE(reboot_work, reboot_handler);
+K_WORK_DELAYABLE_DEFINE(stall_timeout_work, stall_timeout_handler);
 
 static ssize_t ctrl_write(struct bt_conn *, const struct bt_gatt_attr *,
 			  const void *, uint16_t, uint16_t, uint8_t);
@@ -117,11 +121,15 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		running_crc = 0;
 		state = OTA_RECEIVING; error = 0;
 		(void)k_work_cancel_delayable(&arm_timeout_work);
+		/* The arm timeout is done once BEGIN arrives, so from here the stall
+		 * timeout is the only thing bounding the session. */
+		(void)k_work_reschedule(&stall_timeout_work, OTA_STALL_TIMEOUT);
 		printk("[OTA] BEGIN size=%u crc=0x%08x\n", expected_size, expected_crc);
 		publish_status();
 		return len;
 	}
 	case OTA_OP_END:
+		(void)k_work_cancel_delayable(&stall_timeout_work);
 		if (len != 1 || state != OTA_RECEIVING) {
 			fail(OTA_ERR_END); return len;
 		}
@@ -141,6 +149,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	case OTA_OP_ABORT:
 		if (len != 1) return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 		(void)k_work_cancel_delayable(&reboot_work);
+		(void)k_work_cancel_delayable(&stall_timeout_work);
 		expected_size = expected_crc = received = running_crc = 0;
 		set_state(OTA_IDLE);
 		return len;
@@ -166,6 +175,7 @@ static ssize_t data_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	if (rc) { fail(OTA_ERR_WRITE); return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY); }
 	running_crc = crc32_ieee_update(running_crc, buf, len);
 	received += len;
+	(void)k_work_reschedule(&stall_timeout_work, OTA_STALL_TIMEOUT);
 	return len;
 }
 
@@ -182,6 +192,24 @@ static void arm_timeout_handler(struct k_work *work)
 	ARG_UNUSED(work);
 	if (active_conn && state != OTA_RECEIVING && state != OTA_DONE) {
 		printk("[OTA] connection not armed; disconnecting\n");
+		(void)bt_conn_disconnect(active_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	}
+}
+
+static void stall_timeout_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	if (state != OTA_RECEIVING) {
+		return;
+	}
+	printk("[OTA] no data for %u ms; abandoning transfer\n",
+	       (unsigned)HIVE_OTA_STALL_TIMEOUT_MS);
+	/* Publish the error before dropping the link so a central that is merely
+	 * slow, rather than gone, can still read why its session ended. Leaving
+	 * OTA_RECEIVING is what releases the sensor loop; the disconnect then
+	 * clears active_conn and restarts advertising. */
+	fail(OTA_ERR_SEQ);
+	if (active_conn) {
 		(void)bt_conn_disconnect(active_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 	}
 }
@@ -209,6 +237,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	ARG_UNUSED(conn);
 	(void)k_work_cancel_delayable(&arm_timeout_work);
+	(void)k_work_cancel_delayable(&stall_timeout_work);
 	if (state == OTA_RECEIVING) { state = error = OTA_ERR_SEQ; }
 	if (active_conn) { bt_conn_unref(active_conn); active_conn = NULL; }
 	printk("[OTA] central disconnected (0x%02x)\n", reason);

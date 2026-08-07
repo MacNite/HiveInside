@@ -56,12 +56,62 @@ static int enable_regulator(const struct device *dev, const char *name)
 	return 0;
 }
 
+static int disable_regulator(const struct device *dev, const char *name)
+{
+	if (!device_is_ready(dev)) {
+		printk("[PWR] %s regulator not ready\n", name);
+		return -ENODEV;
+	}
+
+	int err = regulator_disable(dev);
+
+	/* Symmetric with enable_regulator(): a rail that is already off may be
+	 * reported either way depending on the driver. */
+	if (err != 0 && err != -EALREADY) {
+		printk("[PWR] %s disable failed (%d)\n", name, err);
+		return err;
+	}
+
+	return 0;
+}
+
+/* Hand back the reference Zephyr's regulator core takes during its own init,
+ * so that this file holds exactly one reference to each rail.
+ *
+ * regulator_disable() only reaches the hardware when the reference count drops
+ * to zero, and the core starts at one whenever it finds a rail already on:
+ * `regulator-boot-on` does that for `power_en` (regulator_fixed_init() drives
+ * the GPIO active and counts it), and regulator_npm13xx_init() does it for
+ * LDO1 whenever it reads the rail back as enabled. The nPM1300 is a separate
+ * chip that no CPU reset touches, so after a watchdog reset taken during a
+ * capture, LDO1 is still on and the count starts at one even with boot-on
+ * removed from the devicetree.
+ *
+ * Without this, power_init()'s own enable below would leave the count at two
+ * and power_sensor_rail_disable() would only ever decrement it to one — the
+ * rail would stay powered for the rest of the node's life, silently, with the
+ * firmware reporting success. Releasing the init reference first makes the
+ * gating hold in every build and after every reset.
+ *
+ * A disable at a count of zero is a no-op inside the core, so the ordinary
+ * cold-boot path is unaffected. */
+static void release_init_reference(const struct device *dev)
+{
+	if (device_is_ready(dev)) {
+		(void)regulator_disable(dev);
+	}
+}
+
 void power_init(void)
 {
 	/* The board DTS marks this regulator boot-on, but enabling it explicitly
 	 * also works with older Seeed board definitions and mirrors their known-
-	 * good microphone example. */
+	 * good microphone example. Release first: on a boot-on build that briefly
+	 * drops the gate before this function raises it again, which the 20 ms
+	 * settle below already covers, and it is what leaves the reference count
+	 * where power_sensor_rail_disable() can reach zero. */
 #if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+	release_init_reference(power_en);
 	if (enable_regulator(power_en, "sensor power gate") != 0) {
 		return;
 	}
@@ -71,6 +121,7 @@ void power_init(void)
 		printk("[PWR] nPM1300 LDO1 not ready — sensor rail unmanaged\n");
 		return;
 	}
+	release_init_reference(ldo1);
 
 	int err = regulator_set_voltage(ldo1, 3300000, 3300000);
 
@@ -89,12 +140,22 @@ void power_init(void)
 
 int power_sensor_rail_enable(void)
 {
+	int err;
+
 	if (sensor_rail_enabled) {
 		return 0;
 	}
 
-	int err = enable_regulator(ldo1, "LDO1");
+	/* Upstream gate first, in the same order as power_init() and Seeed's
+	 * reference application: LDO1 alone does not power the island. */
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+	err = enable_regulator(power_en, "sensor power gate");
+	if (err != 0) {
+		return err;
+	}
+#endif
 
+	err = enable_regulator(ldo1, "LDO1");
 	if (err != 0) {
 		return err;
 	}
@@ -106,17 +167,28 @@ int power_sensor_rail_enable(void)
 
 int power_sensor_rail_disable(void)
 {
+	int err;
+
 	if (!sensor_rail_enabled) {
 		return 0;
 	}
 
-	int err = regulator_disable(ldo1);
-
-	if (err != 0 && err != -EALREADY) {
-		printk("[PWR] LDO1 disable failed (%d)\n", err);
+	err = disable_regulator(ldo1, "LDO1");
+	if (err != 0) {
 		return err;
 	}
 	sensor_rail_enabled = false;
+
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+	/* Then the upstream gate, so the sensor island is not left sitting in a
+	 * powered standby path for the ~99 % of each cycle that takes no
+	 * measurement. Reverse order of the enable above. */
+	err = disable_regulator(power_en, "sensor power gate");
+	if (err != 0) {
+		return err;
+	}
+#endif
+
 	return 0;
 }
 

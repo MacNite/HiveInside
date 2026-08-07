@@ -45,6 +45,14 @@ static const uint8_t identity[IDENTITY_SIZE] = {
 	HIVEINSIDE_FW_VERSION_PATCH,
 };
 
+/* The identity record carries each version component in a single byte, so a
+ * version bump past 255 would silently truncate on the air — the same class of
+ * failure as the version never changing at all. */
+BUILD_ASSERT(HIVEINSIDE_FW_VERSION_MAJOR >= 0 && HIVEINSIDE_FW_VERSION_MAJOR <= UINT8_MAX &&
+	     HIVEINSIDE_FW_VERSION_MINOR >= 0 && HIVEINSIDE_FW_VERSION_MINOR <= UINT8_MAX &&
+	     HIVEINSIDE_FW_VERSION_PATCH >= 0 && HIVEINSIDE_FW_VERSION_PATCH <= UINT8_MAX,
+	     "each firmware version component must fit the one-byte identity field");
+
 /* A legacy scan response is limited to 31 bytes. Each AD structure adds a
  * length and type byte, hence the two +2 terms below. */
 BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +

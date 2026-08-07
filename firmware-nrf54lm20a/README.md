@@ -112,7 +112,28 @@ therefore receives it during its existing shared passive scan and forwards it
 with the next server upload. Pair the node by its stable identity address as
 **HiveInside (nRF54LM20A) — beacon**.
 
+### Watchdog
+
+A sealed node has no console and nobody watching it, so a hang inside a sensor
+driver — a stuck I²C transfer, a `dmic_read()` that never returns — would leave
+the firmware alive enough to keep advertising the last good measurement
+indefinitely. From HiveHub that looks like a hive that simply stopped changing.
+
+`src/watchdog.c` arms `wdt31` with a 60 s timeout and `main.c` feeds it, both at
+the top of each cycle and every 20 s through the long idle between cycles, so
+the timeout is sized against one stuck driver call rather than against
+`MEASURE_INTERVAL_MS`. The OTA polling loop feeds it too: a firmware upload
+legitimately takes minutes and must not be cut short. Adjust with
+`HIVE_WDT_TIMEOUT_MS` / `HIVE_WDT_FEED_INTERVAL_MS` in `hive_config.h`.
+
+The watchdog is recovery, not reporting. It resets a wedged node; it cannot
+tell you that it happened. A node whose readings jump back to boot defaults is
+the symptom to look for.
+
 ### Radio sleep and battery life
+
+For the full code/hardware audit, production build profile, measurement method,
+and upstream references, see [`../docs/low-power.md`](../docs/low-power.md).
 
 - The firmware switches nPM1300 LDO1 off after each acquisition and restores it
   shortly before the next one. This removes the on-board IMU and microphone's
@@ -149,7 +170,7 @@ with the next server upload. Pair the node by its stable identity address as
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.2 | USB + HiveHub BLE beacon
+[HiveInside] nrf54lm20a fw 0.4.4 | USB + HiveHub BLE beacon
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [BLE] ready; name=HiveInside manufacturer=HiveInside id=0x02e5 interval=1000 ms
 [SHT40] present on i2c@...
@@ -194,6 +215,26 @@ west flash            # programs MCUboot + the signed app over the on-board debu
 
 pio device monitor    # serial console (see below)
 ```
+
+Building from VS Code / VSCodium with the nRF Connect extension, including a
+second configuration for the low-power deployment image, is documented in
+[`../docs/vscode-build.md`](../docs/vscode-build.md).
+
+Each `west` build also writes a version-stamped copy of the signed application
+next to `zephyr.signed.bin`, so a release artifact still identifies itself once
+it is detached from its build directory:
+
+```
+<build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.4-bringup.signed.bin
+```
+
+The version comes from `HIVEINSIDE_FW_VERSION_MAJOR`/`_MINOR`/`_PATCH` in
+`src/hive_config.h` — the same numbers the node advertises; the
+`-bringup` / `-lowpower` suffix is derived from `CONFIG_SERIAL` in the image
+actually built, so a deployment image built with the
+[`low-power`](../docs/low-power.md) profile can never be mistaken for a
+console-enabled one when picking an OTA payload. Upload that file rather than
+`zephyr.signed.bin` — see [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md).
 
 > ⚠️ **Do not `pio run -t upload`.** With MCUboot enabled it flashes the
 > application-only image at the slot-0 offset with nothing at `0x0`, so the CPU
@@ -257,6 +298,10 @@ firmware-nrf54lm20a/
 │   ├── prj.conf          identical copy of the root prj.conf
 │   └── app.overlay       identical copy of the root app.overlay
 ├── ncs_fixups.overlay    west/NCS-only DT fixups (see CMakeLists.txt)
+├── low-power.conf        opt-in deployment profile ─┐ see docs/low-power.md
+├── low-power.overlay     opt-in deployment DT tweaks┘
+├── cmake/
+│   └── stamp_ota_payload.cmake  version-stamped copy of zephyr.signed.bin
 └── src/
     ├── main.c            sensor loop + console print + beacon publish
     ├── beacon.[ch]       HiveHub-compatible manufacturer-data advertising
@@ -266,6 +311,7 @@ firmware-nrf54lm20a/
     ├── hive_i2c.[ch]     enumerate every enabled I²C bus for probing
     ├── fft.[ch]          dependency-free radix-2 FFT + band reduction
     ├── power.[ch]        nPM1300 LDO1 → 3.3 V sensor rail
+    ├── watchdog.[ch]     wdt31 hardware watchdog, fed from the main loop
     ├── sht40.[ch]        SHT40 climate
     ├── accel.[ch]        LSM6DS3TR-C / LIS3DH vibration + FFT bands
     ├── mic.[ch]          PDM microphone level + FFT bands

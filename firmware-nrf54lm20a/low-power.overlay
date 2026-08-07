@@ -1,0 +1,68 @@
+/* Deployment profile — apply together with low-power.conf; see
+ * docs/low-power.md.
+ *
+ * uart20 is useful during bring-up but is unnecessary in a sealed beacon.
+ * Disabling the node keeps the peripheral unconfigured and leaves its pins in
+ * the reset (disconnected) state. app.overlay still names uart20 as
+ * zephyr,console, but with CONFIG_UART_CONSOLE=n nothing resolves that chosen
+ * node, so a disabled console node is harmless here. */
+&uart20 {
+	status = "disabled";
+};
+
+/* The fresh-measurement blink is diagnostic only, so drop it from a deployment
+ * image. This is a behaviour change, not a power optimisation: the LED is
+ * active-low and main.c already drives the pin inactive, so a disabled node
+ * saves only the 100 ms blink itself — about 0.03 % duty at the default
+ * five-minute interval. main.c compiles the blink out via the led0 alias
+ * status check, so nothing else has to change. */
+&blue_led {
+	status = "disabled";
+};
+
+/* Do not hold the IMU/microphone island powered from reset.
+ *
+ * `power_en` (P1.12) carries `regulator-boot-on` in the board devicetree and
+ * app.overlay adds the same property to LDO1, so both rails come up before
+ * main() runs and stay up until src/power.c first switches them. src/power.c
+ * releases the regulator core's init reference so the runtime gating works
+ * either way, but leaving boot-on in place for a deployment image means the
+ * sensor island is powered for the whole of MCUboot plus application init, and
+ * that power_init() has to disable and re-enable each rail to normalise the
+ * reference count. Removing the property here avoids both.
+ *
+ * Only the deployment profile does this. The bring-up build keeps boot-on so
+ * the rail is already at 3.3 V if power.c is ever compiled out or fails to
+ * reach the nPM1300. */
+&power_en {
+	/delete-property/ regulator-boot-on;
+};
+
+&pmic {
+	regulators {
+		LDO1 {
+			/delete-property/ regulator-boot-on;
+		};
+	};
+};
+
+/* Two nodes Seeed's low-power guide also lists are deliberately NOT touched
+ * here, because on the board devicetree this project builds against they would
+ * be a no-op and a build failure respectively:
+ *
+ * - The external 8 MB SPI NOR (`py25q64`) already ships `status = "disabled"`,
+ *   so the driver never probes it and there is nothing to switch off. Seeed's
+ *   guide goes the other way and *enables* the node, because reaching the
+ *   part's ~1 uA deep-power-down state requires a driver to issue the DPD
+ *   command (`has-dpd` is present in the node, and Zephyr's spi_nor driver
+ *   exposes this as CONFIG_SPI_NOR_IDLE_IN_DPD). That is a real saving over an
+ *   unprobed part left in standby, but it is a measured change with a driver
+ *   and SPI pin states attached, not an overlay line — see docs/low-power.md.
+ *
+ * - `pmic_leds` does not exist. The nPM1300 node here has `charger` and
+ *   `regulators` children only; the `nordic,npm1300-led` child and its label
+ *   were added in a later Seeed board revision than either tree this firmware
+ *   builds against. Referencing a missing label is a hard devicetree error
+ *   ("label or path, 'pmic_leds', not found"), so the line would break the
+ *   deployment build rather than save anything. With no LED child node, no LED
+ *   driver is built and the engine is left in its reset state anyway. */
