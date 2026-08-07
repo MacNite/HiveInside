@@ -9,7 +9,11 @@
 *.bin
 *.elf
 */build
-*/build_lowpower
+# nRF Connect build configurations, named after their build directories
+# (docs/vscode-build.md). Directory-only patterns: these two names are generic
+# enough that a file called `debug` should not be swept up with them.
+*/debug/
+*/lowpower/
 *.log
 
 # Editor

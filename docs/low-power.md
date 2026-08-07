@@ -89,16 +89,16 @@ fix-up first.
 
 ## In VS Code / VSCodium (nRF Connect extension)
 
-Keep the bring-up image and the deployment image as two build configurations so
-both exist side by side and you can flash either one. The complete setup —
-every field, the verification checklist, and the two ways this form invites you
-to build a quietly broken image — is in
-[`vscode-build.md`](vscode-build.md). In short, the deployment configuration
-differs from the bring-up one in exactly three fields:
+Keep the console image and the deployment image as two build configurations,
+`debug` and `lowpower`, so both exist side by side and you can flash either one.
+The complete setup — every field, the verification checklist, and the two ways
+this form invites you to build a quietly broken image — is in
+[`vscode-build.md`](vscode-build.md). In short, the `lowpower` configuration
+differs from the `debug` one in exactly three fields:
 
 | Field | Value |
 |---|---|
-| Build directory name | `build_lowpower` |
+| Build directory name | `lowpower` |
 | Extra Kconfig fragments | `low-power.conf` |
 | Extra Devicetree overlays | `low-power.overlay` |
 
