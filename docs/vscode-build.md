@@ -1,11 +1,13 @@
 # Building in VS Code / VSCodium (nRF Connect extension)
 
 This is the complete build setup for HiveInside on the Seeed XIAO nRF54LM20A
-Sense: two build configurations side by side — the **bring-up** image with a
-serial console, and the **deployment** image built with the
+Sense: two build configurations side by side — **`debug`**, the image with a
+serial console, and **`lowpower`**, the deployment image built with the
 [low-power profile](low-power.md). Both produce their own bootable
 `merged.hex` and their own OTA payload, and you switch between them in the
-sidebar.
+sidebar. The build directory name *is* the configuration name the sidebar
+shows, so the two names below are the only handle you have on them — keep them
+as written.
 
 For the command-line equivalent see [`flashing.md`](flashing.md); for what the
 low-power profile actually changes and why, see [`low-power.md`](low-power.md).
@@ -24,14 +26,14 @@ low-power profile actually changes and why, see [`low-power.md`](low-power.md).
   section of [`flashing.md`](flashing.md). Once the board target appears in the
   dropdown, this is already sorted.
 
-## Configuration 1 — bring-up (serial console)
+## Configuration 1 — `debug` (serial console)
 
 **APPLICATIONS → `firmware-nrf54lm20a` → Add build configuration.**
 
 | Field | Value |
 |---|---|
 | Board target | `xiao_nrf54lm20a/nrf54lm20a/cpuapp` |
-| Build directory name | `build` |
+| **Build directory name** | **`debug`** |
 | Base configuration files (Kconfig fragments) | *(empty)* |
 | Extra Kconfig fragments | *(empty)* |
 | Base Devicetree overlays | *(empty)* |
@@ -42,17 +44,17 @@ low-power profile actually changes and why, see [`low-power.md`](low-power.md).
 
 Everything empty is correct. Zephyr picks up `prj.conf` and `app.overlay` on
 its own, and the application's `CMakeLists.txt` adds `ncs_fixups.overlay`. This
-is the image to use for anything you need to debug: it is the only one that
-prints.
+is the image to use for anything you need to debug — hence the name: it is the
+only one that prints.
 
-## Configuration 2 — deployment (low power)
+## Configuration 2 — `lowpower` (deployment)
 
 **Add build configuration** a second time. Only three fields differ:
 
 | Field | Value |
 |---|---|
 | Board target | `xiao_nrf54lm20a/nrf54lm20a/cpuapp` |
-| **Build directory name** | **`build_lowpower`** |
+| **Build directory name** | **`lowpower`** |
 | Base configuration files (Kconfig fragments) | *(empty)* |
 | **Extra Kconfig fragments** | **`low-power.conf`** |
 | Base Devicetree overlays | *(empty)* |
@@ -115,12 +117,12 @@ output. Check all four:
    -- Found devicetree overlay: .../ncs_fixups.overlay
    -- Found devicetree overlay: .../low-power.overlay
    ```
-4. The deployment image's `FLASH` figure is **visibly smaller** than the
-   bring-up build's. The UART driver, console, `printk()` and the cbprintf
+4. The `lowpower` image's `FLASH` figure is **visibly smaller** than the
+   `debug` build's. The UART driver, console, `printk()` and the cbprintf
    floating-point formatter are all gone. Two near-identical sizes mean the
    fragment was not applied.
 
-On the bring-up image, the console after flashing should show the watchdog
+On the `debug` image, the console after flashing should show the watchdog
 arming and the version you expect:
 
 ```
@@ -136,7 +138,7 @@ replaced — see the table above.
 Each configuration writes to its own build directory:
 
 ```
-build/                              build_lowpower/
+debug/                              lowpower/
 └── merged.hex                      └── merged.hex          ← SWD flashing
 └── firmware-nrf54lm20a/zephyr/     └── firmware-nrf54lm20a/zephyr/
     ├── zephyr.signed.bin               ├── zephyr.signed.bin
@@ -150,6 +152,12 @@ that rather than `zephyr.signed.bin`, because every configuration writes the
 same `zephyr.signed.bin` filename and nothing distinguishes two of them once
 they leave their build directories. See [`ota-over-ble.md`](ota-over-ble.md).
 
+The `debug` configuration's payload is stamped **`-bringup`**, not `-debug`:
+that suffix is derived from `CONFIG_SERIAL` in the image that was actually
+built, so it describes the image rather than the configuration that requested
+it, and it stays `-bringup` for any console-enabled build however it was
+produced.
+
 ## Notes
 
 * **Pristine builds.** After changing any field in the form, or after pulling
@@ -157,8 +165,13 @@ they leave their build directories. See [`ota-over-ble.md`](ota-over-ble.md).
   build directory is exactly where Zephyr's caches mislead.
 * **`Include debug thread information`** adds `-DCONFIG_DEBUG_THREAD_INFO=y` for
   debugger thread awareness. Harmless, and not part of the low-power profile —
-  leave it on for bring-up, and off for a deployment image if you want the
-  smallest build.
+  leave it on for `debug`, and off for `lowpower` if you want the smallest
+  build.
+* **Neither directory is `build/`.** `west` defaults to `build/`, so a
+  command-line `west build`, `west flash` or `west debug` against a directory
+  these configurations produced needs `-d debug` or `-d lowpower`. Without it
+  `west` creates or reuses a third, unrelated build directory —
+  [`flashing.md`](flashing.md) describes that plain command-line flow.
 * **Browse vs typing.** The **Browse** button inserts absolute paths. Those work
   fine; plain relative filenames are resolved against the application directory
   and are easier to read.

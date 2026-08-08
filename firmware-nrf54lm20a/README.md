@@ -216,8 +216,8 @@ west flash            # programs MCUboot + the signed app over the on-board debu
 pio device monitor    # serial console (see below)
 ```
 
-Building from VS Code / VSCodium with the nRF Connect extension, including a
-second configuration for the low-power deployment image, is documented in
+Building from VS Code / VSCodium with the nRF Connect extension — the `debug`
+configuration and the `lowpower` one for the deployment image — is documented in
 [`../docs/vscode-build.md`](../docs/vscode-build.md).
 
 Each `west` build also writes a version-stamped copy of the signed application
