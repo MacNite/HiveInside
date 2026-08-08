@@ -10,35 +10,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The root prj.conf / app.overlay serve `west` builds and the zephyr/
-  # copies serve the Seeed PlatformIO builder. They describe the same
-  # application and must not drift apart.
-  config-sync:
+  # Build both configurations the way docs/vscode-build.md describes them: a
+  # real `west --sysbuild` build producing MCUboot + the signed application,
+  # against the upstream Zephyr revision pinned in west.yml.
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `debug` — console on, no extra fragments. Zephyr picks up prj.conf
+          # and app.overlay itself; CMakeLists.txt adds ncs_fixups.overlay.
+          - config: debug
+            variant: bringup
+            extra: ""
+          # `lowpower` — the deployment profile from docs/low-power.md. The
+          # fragments go in the EXTRA_* variables, never the base ones: the base
+          # variables replace prj.conf/app.overlay instead of merging onto them,
+          # and the devicetree half of that mistake compiles cleanly into a
+          # broken image.
+          - config: lowpower
+            variant: lowpower
+            extra: >-
+              -DEXTRA_CONF_FILE=low-power.conf
+              -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
+    name: build (${{ matrix.config }})
     steps:
       - uses: actions/checkout@v4
-      - name: prj.conf copies must be identical
-        run: diff -u firmware-nrf54lm20a/prj.conf firmware-nrf54lm20a/zephyr/prj.conf
-      - name: app.overlay copies must be identical
-        run: diff -u firmware-nrf54lm20a/app.overlay firmware-nrf54lm20a/zephyr/app.overlay
+        with:
+          path: hiveinside
 
-  build-nrf54lm20a:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          python-version: "3.11"
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.platformio/packages
-            ~/.platformio/platforms
-            ~/.platformio/penv
-          key: pio-nrf54lm20a-${{ hashFiles('firmware-nrf54lm20a/platformio.ini') }}
-      - name: Install PlatformIO
-        run: pip install platformio
-      - name: Build firmware
-        run: pio run -d firmware-nrf54lm20a
+          app-path: hiveinside
+          toolchains: arm-zephyr-eabi
+
+      - name: Build ${{ matrix.config }}
+        working-directory: hiveinside
+        env:
+          EXTRA: ${{ matrix.extra }}
+        run: |
+          set -eux
+          west build --pristine=always --sysbuild \
+            -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+            -d "${{ matrix.config }}" \
+            firmware-nrf54lm20a \
+            ${EXTRA:+-- $EXTRA}
+
+      - name: Verify the bootable image and the stamped OTA payload
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # merged.hex is MCUboot plus the signed application — its absence
+          # means sysbuild did not build the bootloader image.
+          test -f "${{ matrix.config }}/merged.hex"
+          # The version-stamped payload is what gets uploaded over BLE. Its
+          # suffix is derived from CONFIG_SERIAL in the image actually built,
+          # so checking it here catches a fragment that was silently not
+          # applied — the failure docs/vscode-build.md warns about.
+          out="${{ matrix.config }}/firmware-nrf54lm20a/zephyr"
+          ls -l "$out"/hiveinside-nrf54lm20a-v*-${{ matrix.variant }}.signed.bin

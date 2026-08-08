@@ -178,6 +178,9 @@ produced.
 * **Extra CMake arguments** stays empty. Passing
   `-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
   by hand is exactly equivalent if you prefer it.
-* **CI does not build the low-power configuration.** CI compiles only the
-  default configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`.
-  Build the deployment image yourself after changing anything it touches.
+* **CI builds both configurations.** `.github/workflows/build.yml` runs the same
+  `west --sysbuild` build for `debug` and `lowpower` against the Zephyr revision
+  pinned in `west.yml`, and checks each one produced `merged.hex` and a payload
+  with the expected variant suffix. A green CI run means the fragments were
+  actually applied — but it is not a substitute for flashing a deployment image
+  before sealing a hive.
