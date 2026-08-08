@@ -15,8 +15,8 @@
  *     nPM1300 PMIC (LiPo charging + fuel gauge).
  *   * SHT40 — external temperature + humidity sensor on the XIAO I²C header.
  *
- * Every value can be overridden from the build (e.g. PlatformIO build_flags
- * or -DEXTRA_CFLAGS) without editing this file. The firmware version is the
+ * Every value can be overridden from the build (e.g. -DEXTRA_CFLAGS)
+ * without editing this file. The firmware version is the
  * one deliberate exception — see the comment on it below.
  */
 #pragma once

@@ -82,10 +82,11 @@ the sysbuild, CMake-cache, environment, and local-variable scopes rather than
 taking only the highest-precedence one. Both overlays end up in the DTS list,
 fix-up first.
 
-> **Status: CI does not cover this profile.** CI compiles only the default
-> configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`.
-> Build the profile yourself after changing anything it touches, and before
-> flashing a sealed node.
+> **Status: nothing automated covers this profile.** There is no CI build, so a
+> fragment that silently stops applying will not be caught for you. Build the
+> profile yourself after changing anything it touches, verify it with the
+> checklist in [`vscode-build.md`](vscode-build.md), and flash and check a real
+> board before sealing a node.
 
 ## In VS Code / VSCodium (nRF Connect extension)
 
@@ -263,7 +264,7 @@ upstream resources (accessed 2026-08-05):
   `regulator_disable()` acts only at a count of zero.
 * [Seeed's Zephyr low-power example](https://github.com/Seeed-Studio/platform-seeedboards/tree/main/examples/zephyr-lowpower)
   explicitly suspends the console before system-off.
-* [Seeed's XIAO nRF54LM20A board definition](https://github.com/Seeed-Studio/platform-seeedboards/tree/main/zephyr/boards/arm/xiao_nrf54lm20a)
+* [The upstream XIAO nRF54LM20A board definition](https://github.com/zephyrproject-rtos/zephyr/tree/main/boards/seeed/xiao_nrf54lm20a)
   is the authority for DC/DC mode, UART sleep pinctrl, PMIC, and sensor rails.
 * [Nordic nRF54L Series power optimization guide](https://docs.nordicsemi.com/bundle/nwp_045/page/WP/nwp_045/intro.html)
   gives the SoC-level measurement and optimization background.

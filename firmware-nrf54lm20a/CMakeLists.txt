@@ -1,11 +1,7 @@
-# Conventional Zephyr entry point retained for west builds. PlatformIO uses
-# zephyr/CMakeLists.txt because that is the Seeed Zephyr builder layout.
 cmake_minimum_required(VERSION 3.20.0)
 
-# west/NCS-only devicetree fixups (see ncs_fixups.overlay). Applied on top of
-# the auto-included app.overlay and only here, so the PlatformIO build under
-# zephyr/ — which uses a different board tree — is untouched. Must be set before
-# find_package(Zephyr).
+# Devicetree fixups (see ncs_fixups.overlay), applied on top of the
+# auto-included app.overlay. Must be set before find_package(Zephyr).
 #
 # A plain set() is correct and does not hide a caller's overlay: Zephyr reads
 # this with zephyr_get(EXTRA_DTC_OVERLAY_FILE SYSBUILD LOCAL MERGE REVERSE),
@@ -42,9 +38,6 @@ target_sources(app PRIVATE
 # a sealed hive fails silently — the node boots, advertises, and simply behaves
 # like the other build. Copy the signed image next to itself under a name that
 # carries the firmware version and the variant.
-#
-# Only `west` builds reach this file. The PlatformIO build under zephyr/ is a
-# compile check and never signs an image, so it is unaffected.
 
 set(hive_config_header ${CMAKE_CURRENT_SOURCE_DIR}/src/hive_config.h)
 set_property(DIRECTORY APPEND

@@ -9,11 +9,10 @@ build produces both, and both must reach the chip:
 
 ```bash
 # From an nRF Connect SDK / Zephyr workspace that has the XIAO nRF54LM20A
-# board definition available (it ships with the Seeed PlatformIO platform
-# under zephyr/boards/; add it out-of-tree to your west workspace).
-west build --sysbuild -b <board-target> path/to/firmware-nrf54lm20a
-west flash            # programs every sysbuild image over the on-board debugger
-pio device monitor    # serial console over the same cable (see below)
+# board definition available (add it out of tree — see below).
+west build --sysbuild -b <board-target> -d debug path/to/firmware-nrf54lm20a
+west flash -d debug           # programs every sysbuild image over the on-board debugger
+picocom -b 115200 /dev/ttyACM0  # serial console over the same cable (see below)
 ```
 
 `west flash` run against the **top-level** sysbuild build directory reads
@@ -51,24 +50,19 @@ the USB-C connector. **No external probe is required** — plug the board into U
 and `west flash` programs the merged image over SWD through the on-board
 debugger.
 
-### PlatformIO is a compile check, not a flashing path
+### A build without `--sysbuild` is not a flashing path
 
-PlatformIO's Zephyr builder produces a **single application image** — it does
-not run sysbuild, so it never builds MCUboot, signs the app, or emits a merged
-hex (`sysbuild.conf` / `sysbuild/mcuboot.conf` are ignored by `pio run`). Use it
-to check that the application compiles:
+A plain `west build` produces a **single application image**. It never builds
+MCUboot, signs the app, or emits a merged hex (`sysbuild.conf` and
+`sysbuild/mcuboot.conf` are only read by a sysbuild build). It is useful as a
+compile check and nothing more.
 
-```bash
-cd firmware-nrf54lm20a
-pio run
-```
-
-> ⚠️ **Do not `pio run -t upload`.** With MCUboot enabled, PlatformIO links the
-> application at the slot-0 offset (behind an MCUboot header) and flashes it with
-> **nothing at `0x0`**, so the CPU faults before `main()` runs and the device
-> goes completely silent — no serial output, no BLE. This is the classic "builds
-> fine but never boots" symptom. The `upload` target is guarded in
-> `platformio.ini` and refuses to run; flash the merged hex with `west flash`.
+> ⚠️ **Do not flash an image built without `--sysbuild`.** With MCUboot enabled,
+> the application links at the slot-0 offset (behind an MCUboot header), so
+> flashing it alone leaves **nothing at `0x0`**: the CPU faults before `main()`
+> runs and the device goes completely silent — no serial output, no BLE. This is
+> the classic "builds fine but never boots" symptom. Always build with
+> `--sysbuild` and flash with `west flash`.
 
 The board definition's default runner uses OpenOCD's CMSIS-DAP path, filtered to
 the on-board debugger's fixed VID:PID (`0x2886:0x0068`), so it binds to this
@@ -93,18 +87,18 @@ differ when other ACM devices are attached).
 udevadm info -q property -n /dev/ttyACM0 | grep -E 'ID_VENDOR_ID|ID_MODEL|ID_SERIAL'
 # ID_VENDOR_ID=2886  → Seeed XIAO nRF54LM20A on-board debugger
 
-pio device monitor -p /dev/ttyACM0 -b 115200
+picocom -b 115200 /dev/ttyACM0      # or: screen /dev/ttyACM0 115200
 ```
 
 On **macOS** the same port appears as `/dev/cu.usbmodem*` — there is no
-`/dev/ttyACM0`, so a copied-and-pasted `-p /dev/ttyACM0` fails or silently binds
+`/dev/ttyACM0`, so a copied-and-pasted `/dev/ttyACM0` fails or silently binds
 nothing. List the ports first and pick the Seeed one; note that the board
 presents both a CDC ACM data port and the CMSIS-DAP interface, so more than one
 entry can appear:
 
 ```bash
-pio device list                     # or: ls /dev/cu.usbmodem*
-pio device monitor -p /dev/cu.usbmodemXXXX -b 115200
+ls /dev/cu.usbmodem*
+picocom -b 115200 /dev/cu.usbmodemXXXX
 ```
 
 The startup banner
@@ -150,7 +144,7 @@ battery), prints the readout to this serial console, runs the vibration and
 acoustic FFT band analysis, broadcasts the HiveHub measurement beacon, and
 accepts firmware-over-BLE updates through MCUboot. See
 [`firmware-nrf54lm20a/README.md`](../firmware-nrf54lm20a/README.md) for the
-readout format, PlatformIO details, and the serial-console setup, and
+readout format, the build details, and the serial-console setup, and
 [`ota-over-ble.md`](ota-over-ble.md) for the OTA protocol.
 
 ### The `west --sysbuild` build is the flashing path
@@ -158,9 +152,10 @@ readout format, PlatformIO details, and the serial-console setup, and
 Because the firmware boots through MCUboot, a bootable device needs both the
 bootloader and the signed application, and only `west --sysbuild` produces them
 — see the top of this document. Build it in an nRF Connect SDK / Zephyr
-workspace that has the XIAO nRF54LM20A board definition available (it ships with
-the Seeed PlatformIO platform under `zephyr/boards/`; add it out-of-tree to your
-west workspace). `west flash` programs every sysbuild image over the on-board
+workspace that has the XIAO nRF54LM20A board definition available; the board
+ships in upstream Zephyr and must be added out of tree to an NCS workspace (see
+the board-target section below). `west flash`
+programs every sysbuild image over the on-board
 CMSIS-DAP debugger; with an external probe (below) select the matching runner, e.g.
 `west flash --runner jlink`. The board definition also lists pyOCD, probe-rs,
 and J-Link as optional protocols that require a verified compatible probe and
@@ -179,16 +174,19 @@ board revision.
 
 #### The board target is missing from an nRF Connect SDK workspace
 
-`xiao_nrf54lm20a` ships in **upstream Zephyr**. The nRF Connect SDK uses its own
-Zephyr fork (`nrfconnect/sdk-zephyr`), which does **not** carry it — not on
-`main`, `v3.2-branch` or `v3.1-branch` — so it never appears in the VS Code
-extension's board-target dropdown, however new the SDK is. Only Nordic's own
-`nrf54lm20dk` is there. Nothing is broken; the definition is simply absent.
+`xiao_nrf54lm20a` ships in **upstream Zephyr**, and only on `main` — no tagged
+Zephyr release up to v4.4.2 contains `boards/seeed/xiao_nrf54lm20a/`.
+The nRF Connect SDK uses its own Zephyr fork (`nrfconnect/sdk-zephyr`), which
+does **not** carry it — not on `main`, `v3.2-branch` or `v3.1-branch` — so it
+never appears in the VS Code extension's board-target dropdown, however new the
+SDK is. Only Nordic's own `nrf54lm20dk` is there. Nothing is broken; the
+definition is simply absent.
 
 Two ways forward:
 
-* **Build against upstream Zephyr** (a plain `zephyrproject` west workspace).
-  This is the path the rest of this document describes and needs no extra setup.
+* **Build against upstream Zephyr** (a plain `zephyrproject` west workspace on
+  `main`). This is the path the rest of this document describes and needs no
+  extra setup.
 * **Add the board out-of-tree to the NCS workspace.** Copy the whole
   `boards/seeed/xiao_nrf54lm20a/` directory out of upstream Zephyr into a board
   root of your own, keeping the `boards/<vendor>/<board>/` structure:
@@ -251,8 +249,7 @@ drivers need the kernel mutex/work-queue APIs. `sysbuild/mcuboot.conf` turns
 this; if you see the error, check that fragment is being picked up (it must sit
 next to the application, i.e. `firmware-nrf54lm20a/sysbuild/mcuboot.conf`) and
 rebuild with `--pristine`. The failure is not host- or toolchain-specific, and
-neither a plain `west build` nor `pio run` reproduces it — they never build
-MCUboot.
+a plain `west build` does not reproduce it — it never builds MCUboot.
 
 #### Device is silent after flashing (no console, no BLE)
 
@@ -274,7 +271,7 @@ through it in this order:
    `west flash --domain mcuboot` and `west flash --domain firmware-nrf54lm20a`
    if in doubt. An application alone at slot 0 with nothing at `0x0` faults
    before `main()` and is completely silent — this is the same brick the
-   `pio run -t upload` warning above describes.
+   non-sysbuild warning above describes.
 3. **Make MCUboot talk.** `sysbuild/mcuboot.conf` disables the bootloader's
    console for size, which also means a bootloader that refuses to start slot 0
    fails *silently*. Temporarily comment out the `CONFIG_SERIAL=n` /

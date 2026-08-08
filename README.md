@@ -8,8 +8,8 @@ with a passive scan each cycle and bridges to the backend.
 - **Target:** Seeed **XIAO nRF54LM20A Sense** with an external SHT40, for low power and a
   compact integrated sensor platform — its on-board 6-axis IMU (LSM6DS3TR-C),
   PDM mic (MSM261DGT006) and nPM1300 PMIC fold most of the discrete sensors onto
-  the module. The default contributor workflow is PlatformIO with Zephyr in
-  [`firmware-nrf54lm20a/`](firmware-nrf54lm20a).
+  the module. The firmware is a Zephyr application in
+  [`firmware-nrf54lm20a/`](firmware-nrf54lm20a), built with west and sysbuild.
   [[buy]](https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html)
 
 > Part of the open beehive-monitoring ecosystem alongside **HiveScale** (weight /
@@ -59,9 +59,9 @@ value means the same thing across the ecosystem.
   advertises *connectable* (`ADV_IND`); the measurement payload itself is still
   read passively from the advertisement.
   See [`docs/ota-over-ble.md`](docs/ota-over-ble.md).
-- **PlatformIO with Zephyr** — the contributor workflow keeps standard Zephyr
-  source and configuration files while PlatformIO drives the compile check.
-  Bootable images come from a `west --sysbuild` build.
+- **Zephyr with sysbuild** — one toolchain for everything. `west --sysbuild`
+  builds MCUboot and the signed application together, which is what makes a
+  bootable image and an OTA payload.
 
 ---
 
@@ -69,9 +69,9 @@ value means the same thing across the ecosystem.
 
 ```
 HiveInside/
-├── firmware-nrf54lm20a/  PlatformIO / Zephyr project (XIAO nRF54LM20A Sense)
-│   ├── platformio.ini    compile-check env
+├── firmware-nrf54lm20a/  Zephyr application (XIAO nRF54LM20A Sense)
 │   ├── prj.conf          Zephyr config + app.overlay (board DT tweaks)
+│   ├── low-power.conf    deployment profile, layered on top (docs/low-power.md)
 │   ├── sysbuild/         MCUboot child-image config for `west --sysbuild`
 │   └── src/              main + sensor + FFT + beacon + OTA modules
 ├── enclosure/            Current 3D-printable enclosure files
@@ -83,25 +83,19 @@ HiveInside/
 
 ## Quick start (XIAO nRF54LM20A Sense)
 
-Install PlatformIO, then compile-check the application and open the console:
+From an nRF Connect SDK / Zephyr workspace that has the XIAO nRF54LM20A board
+definition available (see [`docs/flashing.md`](docs/flashing.md)):
 
 ```bash
-cd firmware-nrf54lm20a
-pio run              # compile check only — does NOT produce a bootable image
-pio device monitor   # serial console at 115200 over the on-board debugger
+west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp -d debug path/to/firmware-nrf54lm20a
+west flash -d debug
+picocom -b 115200 /dev/ttyACM0   # serial console over the on-board debugger
 ```
 
-Because the firmware boots through MCUboot, a bootable device needs the
-bootloader **and** the signed application, which only a `west --sysbuild` build
-produces:
-
-```bash
-west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp path/to/firmware-nrf54lm20a
-west flash
-```
-
-> ⚠️ `pio run -t upload` is deliberately blocked — it would flash an
-> application-only image with nothing at `0x0` and brick the boot chain.
+`--sysbuild` is not optional: the firmware boots through MCUboot, so a bootable
+device needs the bootloader **and** the signed application, and only a sysbuild
+build produces both (plus the OTA payload). A plain `west build` yields an
+application-only image with nothing at `0x0`, which does not boot.
 
 See [`docs/vscode-build.md`](docs/vscode-build.md) to build it from VS Code or
 VSCodium, [`docs/flashing.md`](docs/flashing.md) for flashing details and

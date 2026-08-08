@@ -178,6 +178,7 @@ produced.
 * **Extra CMake arguments** stays empty. Passing
   `-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
   by hand is exactly equivalent if you prefer it.
-* **CI does not build the low-power configuration.** CI compiles only the
-  default configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`.
-  Build the deployment image yourself after changing anything it touches.
+* **Nothing builds this but you.** There is no automated build; sysbuild needs a
+  west workspace with the out-of-tree board definition, which CI does not have.
+  Build both configurations yourself after changing anything either one touches,
+  and use the checklist above rather than assuming a fragment was applied.
