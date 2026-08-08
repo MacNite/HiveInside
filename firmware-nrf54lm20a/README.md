@@ -311,10 +311,10 @@ firmware-nrf54lm20a/
     └── battery.[ch]      nPM1300 fuel gauge
 ```
 
-> **One copy of every config file.** `prj.conf` and `app.overlay` used to be
-> duplicated under `zephyr/` because PlatformIO's Seeed builder needed its own
-> application root. PlatformIO is gone, and so are the copies — Zephyr picks up
-> the files above directly.
+> **One copy of every config file.** `prj.conf` and `app.overlay` live only in
+> this application directory, where Zephyr discovers them automatically. Do not
+> create a second application root or duplicate either file: west with sysbuild
+> is the only supported build path.
 
 ## Roadmap
 

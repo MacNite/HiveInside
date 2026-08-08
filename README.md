@@ -62,7 +62,8 @@ value means the same thing across the ecosystem.
 - **Zephyr with sysbuild** — one toolchain for everything. `west --sysbuild`
   builds MCUboot and the signed application together, which is what makes a
   bootable image and an OTA payload; the repository ships a `west.yml` so the
-  workspace is reproducible.
+  workspace is reproducible. **West with sysbuild is the only supported build
+  path**; there is no parallel application tree or alternate build frontend.
 
 ---
 

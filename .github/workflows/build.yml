@@ -41,6 +41,22 @@ jobs:
         with:
           path: hiveinside
 
+      - name: Verify the west-only source tree
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # Keep application configuration single-sourced. A second prj.conf
+          # usually means that an obsolete build frontend has crept back in.
+          test "$(find . -name prj.conf -type f | wc -l)" -eq 1
+          test -f firmware-nrf54lm20a/prj.conf
+
+          # These files belonged to the retired build frontend and must not be
+          # reintroduced alongside the supported west + sysbuild workflow.
+          test ! -e firmware-nrf54lm20a/platformio.ini
+          test ! -e firmware-nrf54lm20a/zephyr
+          test -z "$(find . -type d -name parts -print -quit)"
+          test -z "$(find . -type f \( -name 'pio_guard*' -o -name '*.pyc' \) -print -quit)"
+
       - uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: hiveinside
