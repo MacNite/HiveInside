@@ -43,9 +43,9 @@ low-power profile actually changes and why, see [`low-power.md`](low-power.md).
 | System build (sysbuild) | **Use sysbuild** |
 
 Everything empty is correct. Zephyr picks up `prj.conf` and `app.overlay` on
-its own, and the application's `CMakeLists.txt` adds `ncs_fixups.overlay`. This
-is the image to use for anything you need to debug — hence the name: it is the
-only one that prints.
+its own, and the application's `CMakeLists.txt` selects the fixup overlay for
+the active SDK (`ncs_fixups.overlay` here). This is the image to use for
+anything you need to debug — hence the name: it is the only one that prints.
 
 ## Configuration 2 — `lowpower` (deployment)
 
@@ -111,7 +111,8 @@ output. Check all four:
    Merged configuration '.../prj.conf'
    Merged configuration '.../low-power.conf'
    ```
-3. **All three** overlays are listed:
+3. **All three** overlays are listed (the SDK-specific one is
+   `ncs_fixups.overlay` in an nRF Connect SDK workspace):
    ```
    -- Found devicetree overlay: .../app.overlay
    -- Found devicetree overlay: .../ncs_fixups.overlay

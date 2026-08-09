@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.20.0)
 
-# Devicetree fixups (see ncs_fixups.overlay), applied on top of the
-# auto-included app.overlay. Must be set before find_package(Zephyr).
+# SDK-specific devicetree fixups, applied on top of the auto-included
+# app.overlay. They must be selected before find_package(Zephyr), because that
+# call preprocesses the devicetree. The NCS and upstream board definitions do
+# not expose the same node labels, so applying both overlays is not portable.
 #
 # A plain set() is correct and does not hide a caller's overlay: Zephyr reads
 # this with zephyr_get(EXTRA_DTC_OVERLAY_FILE SYSBUILD LOCAL MERGE REVERSE),
@@ -9,7 +11,14 @@ cmake_minimum_required(VERSION 3.20.0)
 # variable) instead of letting the highest-precedence one win. A deployment
 # overlay passed as -DEXTRA_DTC_OVERLAY_FILE=... therefore lands in the DTS list
 # alongside the fixup below, with the fixup applied first.
-set(EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/ncs_fixups.overlay")
+get_filename_component(hive_zephyr_parent "$ENV{ZEPHYR_BASE}" DIRECTORY)
+if(DEFINED NCS_DIR OR DEFINED ENV{NCS_DIR} OR
+   EXISTS "${hive_zephyr_parent}/nrf/CMakeLists.txt")
+  set(hive_sdk_overlay "ncs_fixups.overlay")
+else()
+  set(hive_sdk_overlay "upstream_fixups.overlay")
+endif()
+set(EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${hive_sdk_overlay}")
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(hiveinside_nrf54lm20a)
