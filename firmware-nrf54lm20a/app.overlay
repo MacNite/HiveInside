@@ -34,6 +34,22 @@
 	current-speed = <115200>;
 };
 
+/* The upstream XIAO board enables the physical crystals but omits the clock
+ * controller children through which the Bluetooth controller requests HFCLK
+ * and reads LFCLK accuracy. Without these nodes, DEVICE_DT_GET_ONE() and
+ * DT_COMPAT_GET_ANY_STATUS_OKAY() expand to compile errors in lll_clock.c. */
+&xo {
+	status = "okay";
+};
+
+&lfclk {
+	status = "okay";
+};
+
+&xo24m {
+	status = "okay";
+};
+
 /* nPM1300 PMIC bit-banged I2C — pin correction.
  *
  * The board DTS routes the PMIC's bit-banged I2C to P1.15 (SDA) / P1.16 (SCL),

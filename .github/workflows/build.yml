@@ -78,9 +78,13 @@ jobs:
         working-directory: hiveinside
         run: |
           set -eux
-          # merged.hex is MCUboot plus the signed application — its absence
-          # means sysbuild did not build the bootloader image.
-          test -f "${{ matrix.config }}/merged.hex"
+          # Upstream Zephyr sysbuild records the separately flashable domains
+          # in domains.yaml rather than producing NCS's merged.hex artifact.
+          # Check both pieces that `west flash` consumes: the bootloader and
+          # the signed slot-0 application.
+          test -f "${{ matrix.config }}/domains.yaml"
+          test -f "${{ matrix.config }}/mcuboot/zephyr/zephyr.hex"
+          test -f "${{ matrix.config }}/firmware-nrf54lm20a/zephyr/zephyr.signed.hex"
           # The version-stamped payload is what gets uploaded over BLE. Its
           # suffix is derived from CONFIG_SERIAL in the image actually built,
           # so checking it here catches a fragment that was silently not

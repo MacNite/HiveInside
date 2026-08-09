@@ -180,7 +180,8 @@ produced.
   by hand is exactly equivalent if you prefer it.
 * **CI builds both configurations.** `.github/workflows/build.yml` runs the same
   `west --sysbuild` build for `debug` and `lowpower` against the Zephyr revision
-  pinned in `west.yml`, and checks each one produced `merged.hex` and a payload
-  with the expected variant suffix. A green CI run means the fragments were
-  actually applied — but it is not a substitute for flashing a deployment image
-  before sealing a hive.
+  pinned in `west.yml`. It checks the MCUboot hex, signed application hex and
+  payload with the expected variant suffix. Upstream Zephyr keeps the two flash
+  domains separate; the nRF Connect SDK extension additionally presents their
+  `merged.hex`. A green CI run means the fragments were actually applied — but
+  it is not a substitute for flashing a deployment image before sealing a hive.

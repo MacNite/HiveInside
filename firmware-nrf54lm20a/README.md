@@ -197,9 +197,10 @@ published.
 This firmware boots **through MCUboot** so it can accept firmware-over-BLE
 updates (see [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md)). A bootable
 image is therefore MCUboot **plus** a signed application in slot 0, produced as
-a single merged hex by a `west --sysbuild` build. A build without `--sysbuild`
-covers the **application alone**, so it is a compile check and never a bootable
-image.
+two flash domains by a `west --sysbuild` build. `west flash` programs both; an
+nRF Connect SDK workspace may additionally emit a convenience `merged.hex`. A
+build without `--sysbuild` covers the **application alone**, so it is a compile
+check and never a bootable image.
 
 ```bash
 # One-time: a west workspace at the Zephyr revision pinned in ../west.yml.

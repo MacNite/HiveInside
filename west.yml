@@ -44,4 +44,8 @@ manifest:
           - mcuboot
           - picolibc
           - segger
+          # MCUboot's current mbedTLS integration links TF-PSA-Crypto. Keeping
+          # mbedtls without this companion module makes sysbuild fail while
+          # configuring the MCUboot child image, before the app is compiled.
+          - tf-psa-crypto
           - zcbor
