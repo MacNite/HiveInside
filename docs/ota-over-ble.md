@@ -40,8 +40,8 @@ The build also drops a byte-identical copy beside it under a name carrying the
 firmware version and the image variant, for example:
 
 ```
-hiveinside-nrf54lm20a-v0.4.4-bringup.signed.bin     # normal build, console on
-hiveinside-nrf54lm20a-v0.4.4-lowpower.signed.bin    # docs/low-power.md profile
+hiveinside-nrf54lm20a-v0.4.5-bringup.signed.bin     # normal build, console on
+hiveinside-nrf54lm20a-v0.4.5-lowpower.signed.bin    # docs/low-power.md profile
 ```
 
 Upload that copy rather than `zephyr.signed.bin`. Every build configuration

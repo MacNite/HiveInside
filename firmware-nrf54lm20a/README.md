@@ -170,7 +170,7 @@ and upstream references, see [`../docs/low-power.md`](../docs/low-power.md).
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.4 | USB + HiveHub BLE beacon
+[HiveInside] nrf54lm20a fw 0.4.5 | USB + HiveHub BLE beacon
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [BLE] ready; name=HiveInside manufacturer=HiveInside id=0x02e5 interval=1000 ms
 [SHT40] present on i2c@...
@@ -224,7 +224,7 @@ next to `zephyr.signed.bin`, so a release artifact still identifies itself once
 it is detached from its build directory:
 
 ```
-<build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.4-bringup.signed.bin
+<build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.5-bringup.signed.bin
 ```
 
 The version comes from `HIVEINSIDE_FW_VERSION_MAJOR`/`_MINOR`/`_PATCH` in

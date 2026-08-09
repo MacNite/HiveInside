@@ -127,7 +127,7 @@ On the `debug` image, the console after flashing should show the watchdog
 arming and the version you expect:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.4 | USB + HiveHub BLE beacon
+[HiveInside] nrf54lm20a fw 0.4.5 | USB + HiveHub BLE beacon
 [WDT] armed: 60000 ms timeout, fed every 20000 ms
 ```
 
@@ -144,7 +144,7 @@ debug/                              lowpower/
 └── firmware-nrf54lm20a/zephyr/     └── firmware-nrf54lm20a/zephyr/
     ├── zephyr.signed.bin               ├── zephyr.signed.bin
     └── hiveinside-nrf54lm20a-          └── hiveinside-nrf54lm20a-
-        v0.4.4-bringup.signed.bin           v0.4.4-lowpower.signed.bin
+        v0.4.5-bringup.signed.bin           v0.4.5-lowpower.signed.bin
 ```
 
 `merged.hex` is MCUboot plus the signed application and is what **Flash**
