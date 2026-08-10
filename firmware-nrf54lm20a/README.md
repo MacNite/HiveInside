@@ -291,7 +291,7 @@ firmware-nrf54lm20a/
 ├── CMakeLists.txt        application entry point (source list)
 ├── prj.conf              Zephyr config   ┐ both picked up automatically by
 ├── app.overlay           board DT tweaks ┘ Zephyr; no build field points at them
-├── *_fixups.overlay      SDK-specific DT fixups selected by CMakeLists.txt
+├── ncs_fixups.overlay    NCS-only DT fixup selected by CMakeLists.txt
 ├── low-power.conf        opt-in deployment profile ─┐ see docs/low-power.md
 ├── low-power.overlay     opt-in deployment DT tweaks┘
 ├── cmake/
