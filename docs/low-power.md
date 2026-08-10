@@ -82,10 +82,11 @@ the sysbuild, CMake-cache, environment, and local-variable scopes rather than
 taking only the highest-precedence one. Both overlays end up in the DTS list,
 fix-up first.
 
-> **Status: CI does not cover this profile.** CI compiles only the default
-> configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`.
-> Build the profile yourself after changing anything it touches, and before
-> flashing a sealed node.
+> **Status: CI compiles this profile, and that is all it can do.**
+> `.github/workflows/build.yml` builds the `lowpower` configuration on every
+> push, so a fragment that stops applying is caught. Nothing in CI measures
+> current or verifies the node still reports — flash and check a real board
+> after changing anything this profile touches, and before sealing a node.
 
 ## In VS Code / VSCodium (nRF Connect extension)
 

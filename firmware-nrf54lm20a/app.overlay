@@ -1,8 +1,9 @@
 /*
  * app.overlay — HiveInside adjustments to the XIAO nRF54LM20A board DT.
  *
- * Kept identical to zephyr/app.overlay (the copy PlatformIO's Seeed Zephyr
- * builder reads); edit both together — CI enforces that they match.
+ * Zephyr includes this automatically for every build configuration; the
+ * low-power deployment image layers low-power.overlay on top of it through
+ * EXTRA_DTC_OVERLAY_FILE. See docs/vscode-build.md.
  *
  * Everything else the firmware needs is already enabled by the upstream board
  * definition: i2c22 (the XIAO header bus, external SHT40), i2c30 (internal bus

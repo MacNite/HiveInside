@@ -1,8 +1,8 @@
 /*
- * nRF Connect SDK / west build fixups — applied ONLY by the top-level
- * CMakeLists.txt (see EXTRA_DTC_OVERLAY_FILE there), never by the PlatformIO
- * build under zephyr/. Keep board-tree differences that only bite the NCS build
- * here so the shared app.overlay stays identical to its zephyr/ copy.
+ * nRF Connect SDK board-tree fixups — applied by the top-level CMakeLists.txt
+ * (see EXTRA_DTC_OVERLAY_FILE there). Kept separate from app.overlay because
+ * these differences only bite an NCS workspace, whose sdk-zephyr board tree
+ * disagrees with upstream Zephyr's.
  *
  * NCS's nRF54LM20A SoC leaves the USBHS wrapper node (nordic,nrf-usbhs-wrapper)
  * enabled by default. With CONFIG_REGULATOR on — which this firmware needs for

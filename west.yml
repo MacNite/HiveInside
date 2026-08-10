@@ -1,0 +1,51 @@
+# West manifest for HiveInside.
+#
+# HiveInside is built with the Zephyr toolkit — `west build --sysbuild`, either
+# from the command line or through the nRF Connect VS Code extension. This
+# manifest makes the repository a self-contained west application, so
+#
+#   west init -m https://github.com/MacNite/HiveInside <workspace>
+#   cd <workspace> && west update
+#
+# produces a workspace that can build the firmware, and CI builds it exactly the
+# way you do.
+#
+# ── Why Zephyr is pinned to a `main` commit and not a release tag ──
+#
+# `boards/seeed/xiao_nrf54lm20a/` is not in any tagged Zephyr release (checked
+# through v4.4.2) — it exists only on `main`. NCS's `sdk-zephyr` fork does not
+# carry it either, which is why upstream Zephyr is the reference workspace and
+# why an NCS workspace needs the board added out of tree (docs/flashing.md).
+# Move this revision forward deliberately, and re-run a --pristine build when
+# you do: a `main` bump can change board files, MCUboot defaults or partitions.
+manifest:
+  self:
+    path: hiveinside
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: eaa480916f440dbc1ee5d63d20abc4cc79e32e12
+      import:
+        # Only the modules this application actually links. MCUboot is here
+        # because sysbuild builds it as a second image (sysbuild.conf), and
+        # mbedtls because MCUboot verifies the image signature with it. Widen
+        # the list if a build reports a missing module rather than dropping the
+        # allowlist — a full import clones every HAL in the tree.
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_nordic
+          - mbedtls
+          - mcuboot
+          - picolibc
+          - segger
+          # MCUboot's current mbedTLS integration links TF-PSA-Crypto. Keeping
+          # mbedtls without this companion module makes sysbuild fail while
+          # configuring the MCUboot child image, before the app is compiled.
+          - tf-psa-crypto
+          - zcbor

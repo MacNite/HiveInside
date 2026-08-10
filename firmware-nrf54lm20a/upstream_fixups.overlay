@@ -1,0 +1,19 @@
+/*
+ * Fixups for the upstream Zephyr XIAO nRF54LM20A board definition.
+ *
+ * Upstream enables the physical crystals but omits the clock-controller
+ * children through which Bluetooth and PDM request their clocks. The external
+ * Seeed board used with nRF Connect SDK has a different clock tree and does
+ * not define these labels, so CMake applies this overlay only outside NCS.
+ */
+&xo {
+	status = "okay";
+};
+
+&lfclk {
+	status = "okay";
+};
+
+&xo24m {
+	status = "okay";
+};

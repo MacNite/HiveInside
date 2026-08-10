@@ -1,20 +1,25 @@
-# PlatformIO
-.pio/
-.pioenvs/
-.piolibdeps/
-
 # Build artifacts
 *.uf2
 *.hex
 *.bin
 *.elf
+# Build directories. The nRF Connect extension creates them inside the
+# application directory; `west build -d debug` from the repo root creates them
+# at the top level — hence both anchors. Directory-only and explicitly
+# anchored, because `debug` and `lowpower` are generic enough that a file or an
+# unrelated nested directory should not be swept up with them.
+/build/
+/debug/
+/lowpower/
 */build
-# nRF Connect build configurations, named after their build directories
-# (docs/vscode-build.md). Directory-only patterns: these two names are generic
-# enough that a file called `debug` should not be swept up with them.
 */debug/
 */lowpower/
 *.log
+*.checksum
+
+# West workspace metadata, if a workspace is initialised in place
+.west/
+__pycache__/
 
 # Editor
 .vscode/

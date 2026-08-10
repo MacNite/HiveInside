@@ -40,8 +40,8 @@ The build also drops a byte-identical copy beside it under a name carrying the
 firmware version and the image variant, for example:
 
 ```
-hiveinside-nrf54lm20a-v0.4.4-bringup.signed.bin     # normal build, console on
-hiveinside-nrf54lm20a-v0.4.4-lowpower.signed.bin    # docs/low-power.md profile
+hiveinside-nrf54lm20a-v0.4.5-bringup.signed.bin     # normal build, console on
+hiveinside-nrf54lm20a-v0.4.5-lowpower.signed.bin    # docs/low-power.md profile
 ```
 
 Upload that copy rather than `zephyr.signed.bin`. Every build configuration
@@ -54,10 +54,9 @@ image that was actually built, not from how the build was requested. The version
 same numbers the node advertises — so bumping them there moves the artifact
 name and the on-air version together.
 
-> PlatformIO's Zephyr builder does **not** run sysbuild — it builds the
-> application alone and never emits a signed image or a bootable merged hex.
-> Build and flash releases with `west` (see [`flashing.md`](flashing.md)); treat
-> `pio run` only as a compile check.
+> A build without `--sysbuild` never emits a signed image or a bootable merged
+> hex — it builds the application alone. Build and flash releases with
+> `west --sysbuild` (see [`flashing.md`](flashing.md)).
 
 ## GATT protocol
 
@@ -172,10 +171,11 @@ stronger connection guardrail, but requires a future HiveHub bonding change.
 
 ## Build
 
-From `firmware-nrf54lm20a/`, `pio run` compile-checks the application but cannot
-produce a release artifact. Build releases with sysbuild: `west build -b
-xiao_nrf54lm20a/nrf54lm20a/cpuapp --sysbuild .`. Release automation must publish
-the generated **signed** application binary, never the raw `zephyr.bin`.
+Only a sysbuild build produces a release artifact: `west build --sysbuild -b
+xiao_nrf54lm20a/nrf54lm20a/cpuapp -d debug firmware-nrf54lm20a`. A build without
+`--sysbuild` compile-checks the application and stops there. Release automation
+must publish the generated **signed** application binary, never the raw
+`zephyr.bin`.
 
 ## Troubleshooting: the relay runs but the version never changes
 

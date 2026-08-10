@@ -43,9 +43,9 @@ low-power profile actually changes and why, see [`low-power.md`](low-power.md).
 | System build (sysbuild) | **Use sysbuild** |
 
 Everything empty is correct. Zephyr picks up `prj.conf` and `app.overlay` on
-its own, and the application's `CMakeLists.txt` adds `ncs_fixups.overlay`. This
-is the image to use for anything you need to debug — hence the name: it is the
-only one that prints.
+its own, and the application's `CMakeLists.txt` selects the fixup overlay for
+the active SDK (`ncs_fixups.overlay` here). This is the image to use for
+anything you need to debug — hence the name: it is the only one that prints.
 
 ## Configuration 2 — `lowpower` (deployment)
 
@@ -111,7 +111,8 @@ output. Check all four:
    Merged configuration '.../prj.conf'
    Merged configuration '.../low-power.conf'
    ```
-3. **All three** overlays are listed:
+3. **All three** overlays are listed (the SDK-specific one is
+   `ncs_fixups.overlay` in an nRF Connect SDK workspace):
    ```
    -- Found devicetree overlay: .../app.overlay
    -- Found devicetree overlay: .../ncs_fixups.overlay
@@ -126,7 +127,7 @@ On the `debug` image, the console after flashing should show the watchdog
 arming and the version you expect:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.4 | USB + HiveHub BLE beacon
+[HiveInside] nrf54lm20a fw 0.4.5 | USB + HiveHub BLE beacon
 [WDT] armed: 60000 ms timeout, fed every 20000 ms
 ```
 
@@ -143,7 +144,7 @@ debug/                              lowpower/
 └── firmware-nrf54lm20a/zephyr/     └── firmware-nrf54lm20a/zephyr/
     ├── zephyr.signed.bin               ├── zephyr.signed.bin
     └── hiveinside-nrf54lm20a-          └── hiveinside-nrf54lm20a-
-        v0.4.4-bringup.signed.bin           v0.4.4-lowpower.signed.bin
+        v0.4.5-bringup.signed.bin           v0.4.5-lowpower.signed.bin
 ```
 
 `merged.hex` is MCUboot plus the signed application and is what **Flash**
@@ -178,6 +179,10 @@ produced.
 * **Extra CMake arguments** stays empty. Passing
   `-DEXTRA_CONF_FILE=low-power.conf -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay`
   by hand is exactly equivalent if you prefer it.
-* **CI does not build the low-power configuration.** CI compiles only the
-  default configuration, through PlatformIO against `firmware-nrf54lm20a/zephyr/`.
-  Build the deployment image yourself after changing anything it touches.
+* **CI builds both configurations.** `.github/workflows/build.yml` runs the same
+  `west --sysbuild` build for `debug` and `lowpower` against the Zephyr revision
+  pinned in `west.yml`. It checks the MCUboot hex, signed application hex and
+  payload with the expected variant suffix. Upstream Zephyr keeps the two flash
+  domains separate; the nRF Connect SDK extension additionally presents their
+  `merged.hex`. A green CI run means the fragments were actually applied — but
+  it is not a substitute for flashing a deployment image before sealing a hive.

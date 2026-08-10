@@ -1,7 +1,7 @@
 # HiveInside — nRF54LM20A firmware
 
-Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **PlatformIO +
-Zephyr**.
+Firmware for the **Seeed XIAO nRF54LM20A Sense**, built with **Zephyr** —
+`west --sysbuild`, from the command line or the nRF Connect VS Code extension.
 
 The firmware reads every sensor, prints the readings to the USB serial console,
 runs the **same vibration and acoustic FFT band analysis as HiveScale/HiveHub**,
@@ -170,7 +170,7 @@ and upstream references, see [`../docs/low-power.md`](../docs/low-power.md).
 Example output:
 
 ```
-[HiveInside] nrf54lm20a fw 0.4.4 | USB + HiveHub BLE beacon
+[HiveInside] nrf54lm20a fw 0.4.5 | USB + HiveHub BLE beacon
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
 [BLE] ready; name=HiveInside manufacturer=HiveInside id=0x02e5 interval=1000 ms
 [SHT40] present on i2c@...
@@ -197,23 +197,22 @@ published.
 This firmware boots **through MCUboot** so it can accept firmware-over-BLE
 updates (see [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md)). A bootable
 image is therefore MCUboot **plus** a signed application in slot 0, produced as
-a single merged hex by a `west --sysbuild` build. PlatformIO's Zephyr builder
-only ever builds and flashes the **application alone**, so it cannot produce a
-bootable image on its own — use it as a compile check, and flash with `west`.
+two flash domains by a `west --sysbuild` build. `west flash` programs both; an
+nRF Connect SDK workspace may additionally emit a convenience `merged.hex`. A
+build without `--sysbuild` covers the **application alone**, so it is a compile
+check and never a bootable image.
 
 ```bash
-# Compile check only (does NOT produce a bootable image):
-cd firmware-nrf54lm20a
-pio run
+# One-time: a west workspace at the Zephyr revision pinned in ../west.yml.
+west init -m https://github.com/MacNite/HiveInside hiveinside-workspace
+cd hiveinside-workspace && west update
 
 # Build + flash the real, bootable OTA image (MCUboot + signed app):
-#   run from an nRF Connect SDK / Zephyr workspace that has the XIAO
-#   nRF54LM20A board definition available (it ships with the Seeed platform).
-west build --sysbuild -b <board-target> path/to/firmware-nrf54lm20a
-west flash            # programs MCUboot + the signed app over the on-board debugger
+west build --sysbuild -b <board-target> -d debug hiveinside/firmware-nrf54lm20a
+west flash -d debug   # programs MCUboot + the signed app over the on-board debugger
                       # (run it against the TOP-LEVEL sysbuild build directory)
 
-pio device monitor    # serial console (see below)
+picocom -b 115200 /dev/ttyACM0   # serial console (see below)
 ```
 
 Building from VS Code / VSCodium with the nRF Connect extension — the `debug`
@@ -225,7 +224,7 @@ next to `zephyr.signed.bin`, so a release artifact still identifies itself once
 it is detached from its build directory:
 
 ```
-<build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.4-bringup.signed.bin
+<build>/firmware-nrf54lm20a/zephyr/hiveinside-nrf54lm20a-v0.4.5-bringup.signed.bin
 ```
 
 The version comes from `HIVEINSIDE_FW_VERSION_MAJOR`/`_MINOR`/`_PATCH` in
@@ -236,11 +235,11 @@ actually built, so a deployment image built with the
 console-enabled one when picking an OTA payload. Upload that file rather than
 `zephyr.signed.bin` — see [`../docs/ota-over-ble.md`](../docs/ota-over-ble.md).
 
-> ⚠️ **Do not `pio run -t upload`.** With MCUboot enabled it flashes the
-> application-only image at the slot-0 offset with nothing at `0x0`, so the CPU
-> faults before `main()` runs and the device goes silent (no serial). The
-> upload target is guarded in `platformio.ini` and will refuse to run for this
-> reason — flash the merged hex with `west flash` instead.
+> ⚠️ **Never flash a build made without `--sysbuild`.** With MCUboot enabled the
+> application links at the slot-0 offset, so flashing it alone leaves nothing at
+> `0x0`: the CPU faults before `main()` runs and the device goes silent (no
+> serial, no BLE). Build with `--sysbuild` and flash the merged image with
+> `west flash`.
 
 The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (VID:PID
 `0x2886:0x0068`) on the USB-C connector, so no external probe is needed — both
@@ -251,12 +250,12 @@ The XIAO nRF54LM20A Sense has an **on-board SAMD11 CMSIS-DAP debugger** (VID:PID
 The SAMD11 also exposes a **USB CDC ACM port** bridged to the SoC's `uart20`, so
 `printk()` output appears on the host over the same USB-C cable used for
 flashing. It runs at **115200 8N1** and enumerates on Linux as `/dev/ttyACM0`
-and on macOS as `/dev/cu.usbmodem*` (run `pio device list` to get the exact
+and on macOS as `/dev/cu.usbmodem*` (run `ls /dev/cu.usbmodem*` to get the exact
 name — there is no `/dev/ttyACM0` on macOS).
 
 ```bash
-pio device monitor -p /dev/ttyACM0 -b 115200          # Linux
-pio device monitor -p /dev/cu.usbmodemXXXX -b 115200  # macOS
+picocom -b 115200 /dev/ttyACM0            # Linux (or: screen /dev/ttyACM0 115200)
+picocom -b 115200 /dev/cu.usbmodemXXXX    # macOS
 ```
 
 The boot banner prints once at reset; press **RST** with the monitor connected
@@ -286,18 +285,13 @@ for the SHT40 and battery connections.
 
 ```
 firmware-nrf54lm20a/
-├── platformio.ini        PlatformIO env (Seeed platform, Zephyr; compile check only)
 ├── sysbuild.conf         enable MCUboot for the west --sysbuild build
 ├── sysbuild/mcuboot.conf MCUboot child-image config (small, console off, board
 │                         power-management drivers off — see the file's comments)
-├── CMakeLists.txt        west entry point (source list)
-├── prj.conf              Zephyr config  ─┐ root copies serve west; the zephyr/
-├── app.overlay           board DT tweaks ─┘ copies serve the PlatformIO builder
-├── zephyr/               PlatformIO Zephyr application root
-│   ├── CMakeLists.txt    (points back at ../src)
-│   ├── prj.conf          identical copy of the root prj.conf
-│   └── app.overlay       identical copy of the root app.overlay
-├── ncs_fixups.overlay    west/NCS-only DT fixups (see CMakeLists.txt)
+├── CMakeLists.txt        application entry point (source list)
+├── prj.conf              Zephyr config   ┐ both picked up automatically by
+├── app.overlay           board DT tweaks ┘ Zephyr; no build field points at them
+├── *_fixups.overlay      SDK-specific DT fixups selected by CMakeLists.txt
 ├── low-power.conf        opt-in deployment profile ─┐ see docs/low-power.md
 ├── low-power.overlay     opt-in deployment DT tweaks┘
 ├── cmake/
@@ -318,10 +312,10 @@ firmware-nrf54lm20a/
     └── battery.[ch]      nPM1300 fuel gauge
 ```
 
-> **Config sync:** the root `prj.conf`/`app.overlay` (for `west`) and the
-> `zephyr/` copies (for the PlatformIO builder) describe the same application
-> and **must stay byte-identical** — CI's `config-sync` job enforces it. Edit
-> both together.
+> **One copy of every config file.** `prj.conf` and `app.overlay` live only in
+> this application directory, where Zephyr discovers them automatically. Do not
+> create a second application root or duplicate either file: west with sysbuild
+> is the only supported build path.
 
 ## Roadmap
 
@@ -333,4 +327,4 @@ firmware-nrf54lm20a/
 4. **BLE board/firmware identity** (compact scan-response record) — done.
 5. **Firmware-over-BLE (MCUboot/DFU)** — implemented (GATT OTA service +
    streaming into slot 1 + MCUboot test-swap). Requires a `west --sysbuild`
-   build/flash of the merged image; the PlatformIO app-only flow cannot boot it.
+   build/flash of the merged image; an application-only build cannot boot.
