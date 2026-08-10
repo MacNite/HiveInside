@@ -15,6 +15,7 @@
 */debug/
 */lowpower/
 *.log
+*.checksum
 
 # West workspace metadata, if a workspace is initialised in place
 .west/
