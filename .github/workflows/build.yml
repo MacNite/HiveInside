@@ -21,7 +21,7 @@ jobs:
       matrix:
         include:
           # `debug` — console on, no extra fragments. Zephyr picks up prj.conf
-          # and app.overlay itself; CMakeLists.txt adds ncs_fixups.overlay.
+          # and app.overlay itself; CMakeLists.txt adds upstream_fixups.overlay.
           - config: debug
             variant: bringup
             extra: ""

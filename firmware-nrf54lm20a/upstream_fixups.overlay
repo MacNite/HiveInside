@@ -1,0 +1,29 @@
+/*
+ * Fixups for the upstream Zephyr XIAO nRF54LM20A board definition.
+ *
+ * The board enables the physical crystals and the parent clock controller but
+ * leaves its child clock devices disabled. Bluetooth requires the LFCLK and XO
+ * devices, while PDM can request XO24M. Name the children relative to &clock
+ * instead of referring to their optional labels: some upstream revisions omit
+ * those labels even though the child node names are stable.
+ */
+&clock {
+	xo {
+		compatible = "nordic,nrf-clock-xo";
+		clock-frequency = <DT_FREQ_M(32)>;
+		#clock-cells = <0>;
+		status = "okay";
+	};
+
+	lfclk {
+		compatible = "nordic,nrf-clock-lfclk";
+		status = "okay";
+	};
+
+	xo24m {
+		compatible = "nordic,nrf-clock-xo24m";
+		clock-frequency = <DT_FREQ_M(24)>;
+		#clock-cells = <0>;
+		status = "okay";
+	};
+};
