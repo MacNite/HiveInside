@@ -109,11 +109,15 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		    flash_area_open(FIXED_PARTITION_ID(slot1_partition), &slot)) {
 			fail(OTA_ERR_BEGIN); return len;
 		}
+		printk("[OTA] slot 1 offset=0x%lx size=%lu\n",
+		       (unsigned long)slot->fa_off, (unsigned long)slot->fa_size);
 		if (expected_size > slot->fa_size) {
 			flash_area_close(slot); fail(OTA_ERR_BEGIN); return len;
 		}
 		flash_area_close(slot);
-		if (flash_img_init(&flash_ctx)) {
+		rc = flash_img_init(&flash_ctx);
+		printk("[OTA] flash_img_init rc=%d\n", rc);
+		if (rc) {
 			fail(OTA_ERR_BEGIN); return len;
 		}
 		received = 0;
@@ -136,7 +140,12 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		if (received != expected_size) { fail(OTA_ERR_SIZE); return len; }
 		if (running_crc != expected_crc) { fail(OTA_ERR_CRC); return len; }
 		rc = flash_img_buffered_write(&flash_ctx, NULL, 0, true);
-		if (rc || flash_img_bytes_written(&flash_ctx) != received) {
+		if (rc) {
+			printk("[OTA] END flash flush failed offset=%u rc=%d\n",
+			       received, rc);
+			fail(OTA_ERR_END); return len;
+		}
+		if (flash_img_bytes_written(&flash_ctx) != received) {
 			fail(OTA_ERR_END); return len;
 		}
 		if (boot_request_upgrade(BOOT_UPGRADE_TEST)) {
@@ -172,7 +181,11 @@ static ssize_t data_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	}
 	/* Synchronous: the write response cannot precede this flash operation. */
 	rc = flash_img_buffered_write(&flash_ctx, buf, len, false);
-	if (rc) { fail(OTA_ERR_WRITE); return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY); }
+	if (rc) {
+		printk("[OTA] flash write failed offset=%u len=%u rc=%d\n",
+		       received, len, rc);
+		fail(OTA_ERR_WRITE); return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
 	running_crc = crc32_ieee_update(running_crc, buf, len);
 	received += len;
 	(void)k_work_reschedule(&stall_timeout_work, OTA_STALL_TIMEOUT);

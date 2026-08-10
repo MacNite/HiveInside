@@ -90,7 +90,12 @@ measurement is read from the advertisement (see
 | `0x00` | idle |
 | `0x01` | receiving |
 | `0x02` | done (verified, rebooting) |
-| `0x10`–`0x15` | error: begin / sequence / write / CRC / size / end |
+| `0x10` | begin failed |
+| `0x11` | sequence failed |
+| `0x12` | slot write failed |
+| `0x13` | CRC failed |
+| `0x14` | size failed |
+| `0x15` | end/finalization failed |
 
 ### CRC-32
 
@@ -190,6 +195,8 @@ no output at all. A healthy transfer prints:
 
 ```
 [OTA] central connected; waiting for BEGIN
+[OTA] slot 1 offset=0x<...> size=<n>
+[OTA] flash_img_init rc=0
 [OTA] BEGIN size=<n> crc=0x<...>
 [OTA] image verified; test upgrade requested
 [OTA] rebooting into test image
@@ -223,7 +230,15 @@ Where it stops tells you which of these you have:
    error in the STATUS characteristic (`0x10`–`0x15`, table above). If the
    backend does not surface STATUS, this looks like silence from the outside.
    `0x13` CRC and `0x14` size mean the bytes that arrived are not the bytes the
-   release row describes.
+   release row describes. For `0x10`, the console prints the resolved slot 1
+   offset and size followed by `flash_img_init rc=<errno>`. For `0x12`, it
+   prints `flash write failed offset=<n> len=<n> rc=<errno>` at the rejected
+   DATA write. A failure while flushing the final partial block reports `END
+   flash flush failed` with its offset and errno before setting `0x15`. Preserve
+   those exact values: they distinguish alignment/range (`-EINVAL`) from flash
+   protection (`-EACCES`) and device or hardware errors. This diagnostic build
+   must be installed over SWD; it cannot be rolled out through the broken OTA
+   path.
 
 4. **The full happy trace, then the old version comes back.** The image
    installed and MCUboot reverted it, or it never really differed:
