@@ -19,6 +19,7 @@
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
@@ -67,6 +68,34 @@ BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +
 static uint8_t frame[FRAME_SIZE];
 static bool bluetooth_ready;
 static bool advertising;
+
+/* Restarting connectable advertising out of the disconnected callback.
+ *
+ * With legacy (non-extended) connectable advertising the host reserves a
+ * connection object the moment advertising starts — le_adv_start_add_conn()
+ * calls bt_conn_add_le() and returns -ENOMEM when the pool is empty. This
+ * firmware sets CONFIG_BT_MAX_CONN=1, and inside the disconnected callback the
+ * stack is still holding its own reference to the connection that just went
+ * away: it is released only after every callback has returned. Calling
+ * bt_le_adv_start() there therefore fails with -ENOMEM every single time —
+ * "[BLE] advertising restart failed (-12)" after each OTA attempt — and the
+ * node stays off the air until the next measurement cycle happens to retry it,
+ * up to MEASURE_INTERVAL_MS later. For a hive that is five minutes of looking
+ * exactly like a flat battery.
+ *
+ * Deferring the restart to the system workqueue lets the callback return and
+ * the connection object be freed first. The short delay is what makes that
+ * ordering reliable rather than a race against the Bluetooth RX thread, and
+ * the bounded retry covers the case where the pool is still busy — a slot in
+ * which the old advertising-reserved object has not been recycled yet.
+ */
+#define ADV_RESTART_DELAY K_MSEC(50)
+#define ADV_RESTART_RETRY K_MSEC(250)
+#define ADV_RESTART_ATTEMPTS 5U
+
+static void adv_restart_handler(struct k_work *work);
+K_WORK_DELAYABLE_DEFINE(adv_restart_work, adv_restart_handler);
+static uint8_t adv_restart_attempts;
 
 static void put_u16(size_t offset, uint16_t value)
 {
@@ -145,6 +174,66 @@ static void encode(const struct measurement *m)
 	}
 }
 
+/* Start legacy connectable undirected advertising (ADV_IND) carrying the last
+ * encoded measurement: the reading stays in the primary packet for HiveHub's
+ * passive scan while the "HiveInside" name rides in the scan response for
+ * active setup scans. Only the legacy PDU allows both payloads at once, so
+ * never let extended advertising be selected here.
+ *
+ * The Flags AD element is omitted: dropping those three bytes leaves the
+ * complete 31-byte legacy payload for the manufacturer element (29 data bytes
+ * plus its length and type). Without Flags the device is formally
+ * non-discoverable — a scanner filtering on the discoverable bits may not list
+ * it — but HiveHub's passive scan and a connect by address, which is how the
+ * OTA relay reaches it, are unaffected.
+ */
+static int advertising_start(void)
+{
+	const struct bt_data ad[] = {
+		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
+	};
+	const struct bt_data scan_response[] = {
+		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
+			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
+	};
+	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
+		BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONN,
+		BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
+	int err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
+				  ARRAY_SIZE(scan_response));
+
+	if (err == 0 || err == -EALREADY) {
+		advertising = true;
+		return 0;
+	}
+	return err;
+}
+
+static void adv_restart_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (!bluetooth_ready || advertising) {
+		return;
+	}
+
+	int err = advertising_start();
+
+	if (err == 0) {
+		return;
+	}
+	if (++adv_restart_attempts < ADV_RESTART_ATTEMPTS) {
+		(void)k_work_reschedule(&adv_restart_work, ADV_RESTART_RETRY);
+		return;
+	}
+	/* Out of retries. The next beacon_publish() still restarts advertising,
+	 * so this is a delay rather than a permanent silence — but it is the
+	 * point at which it stops being a transient. */
+	printk("[BLE] advertising restart failed (%d) after %u attempts\n", err,
+	       (unsigned)adv_restart_attempts);
+}
+
 int beacon_init(void)
 {
 	int err = bt_enable(NULL);
@@ -170,37 +259,24 @@ int beacon_publish(const struct measurement *m)
 	}
 
 	encode(m);
-	/* The Flags AD element is omitted: dropping those three bytes leaves the
-	 * complete 31-byte legacy payload for the manufacturer element (29 data
-	 * bytes plus its length and type). Without Flags the device is formally
-	 * non-discoverable — a scanner filtering on the discoverable bits may not
-	 * list it — but HiveHub's passive scan and a connect by address, which is
-	 * how the OTA relay reaches it, are unaffected. */
-	const struct bt_data ad[] = {
-		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
-	};
-	const struct bt_data scan_response[] = {
-		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
-			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
-		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
-	};
+
 	int err;
 
 	if (!advertising) {
-		/* Legacy connectable undirected advertising (ADV_IND): the
-		 * measurement stays in the primary packet for HiveHub's passive
-		 * scan while the "HiveInside" name rides in the scan response for
-		 * active setup scans. Only the legacy PDU allows both payloads at
-		 * once, so never let extended advertising be selected here. */
-		struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-			BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONN,
-			BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
-		err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
-				      ARRAY_SIZE(scan_response));
-		if (err == 0) {
-			advertising = true;
-		}
+		/* A pending deferred restart would only race with this one. */
+		(void)k_work_cancel_delayable(&adv_restart_work);
+		err = advertising_start();
 	} else {
+		const struct bt_data ad[] = {
+			BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
+		};
+		const struct bt_data scan_response[] = {
+			BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
+				sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+			BT_DATA(BT_DATA_MANUFACTURER_DATA, identity,
+				sizeof(identity)),
+		};
+
 		err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), scan_response,
 					ARRAY_SIZE(scan_response));
 	}
@@ -216,27 +292,13 @@ int beacon_publish(const struct measurement *m)
 void beacon_connected(void)
 {
 	advertising = false;
+	(void)k_work_cancel_delayable(&adv_restart_work);
 }
 
 void beacon_disconnected(void)
 {
-	const struct bt_data ad[] = {
-		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
-	};
-	const struct bt_data scan_response[] = {
-		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
-			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
-		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
-	};
-	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
-		BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_CONN,
-		BLE_ADV_INTERVAL_UNITS, BLE_ADV_INTERVAL_UNITS, NULL);
-	int err = bt_le_adv_start(&param, ad, ARRAY_SIZE(ad), scan_response,
-				  ARRAY_SIZE(scan_response));
-
-	if (err == 0 || err == -EALREADY) {
-		advertising = true;
-	} else {
-		printk("[BLE] advertising restart failed (%d)\n", err);
-	}
+	/* Deliberately does not call bt_le_adv_start() here — see the comment on
+	 * adv_restart_work above for why that can only ever return -ENOMEM. */
+	adv_restart_attempts = 0;
+	(void)k_work_reschedule(&adv_restart_work, ADV_RESTART_DELAY);
 }

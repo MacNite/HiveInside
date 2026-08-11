@@ -73,7 +73,7 @@ measurement is read from the advertisement (see
 |---|---|---|---|
 | OTA control | `8e8b0010-…` | Write | framed command (see below) |
 | OTA data | `8e8b0011-…` | Write / Write-NR | raw firmware bytes, in order |
-| OTA status | `8e8b0013-…` | Read / Notify | `state(1) + received(4 LE) + error(1)` |
+| OTA status | `8e8b0013-…` | Read / Notify | `state(1) + received(4 LE) + error(1) + errno(1)` |
 
 ### Control frames (first byte = opcode)
 
@@ -96,6 +96,22 @@ measurement is read from the advertisement (see
 | `0x13` | CRC failed |
 | `0x14` | size failed |
 | `0x15` | end/finalization failed |
+
+### Status `errno` byte
+
+The seventh byte is the errno of the last failed flash operation — the `rc`
+from `flash_img_init()` (`0x10`), from the rejected `flash_img_buffered_write()`
+(`0x12`), or from the final flush (`0x15`) — clamped into a signed byte, and `0`
+when nothing has been recorded. It exists because the
+[`low-power`](low-power.md) profile that actually gets deployed has no console,
+so without it a field failure can only ever say "flash write failed", which does
+not distinguish a slot that is too small (`-EINVAL`) from a radio timeslot that
+never arrived (`-ETIMEDOUT`).
+
+Added in firmware 0.4.7. It is appended after the original six bytes rather than
+replacing anything, so a relay that reads six bytes keeps working unchanged;
+HiveHub reads whatever length the device returns and treats a missing seventh
+byte as "not recorded".
 
 ### CRC-32
 
@@ -240,6 +256,10 @@ Where it stops tells you which of these you have:
    must be installed over SWD; it cannot be rolled out through the broken OTA
    path.
 
+   The one instance of `0x12` seen in the field is worth recognising on sight,
+   because the numbers are always the same and they look like a link problem
+   rather than a flash one. See the section below.
+
 4. **The full happy trace, then the old version comes back.** The image
    installed and MCUboot reverted it, or it never really differed:
 
@@ -258,6 +278,56 @@ Where it stops tells you which of these you have:
      is genuinely running the new image — it just advertises the old number. The
      banner line above is the giveaway: it shows the same version before and
      after. Bump the three numbers, rebuild, and re-upload.
+
+## Troubleshooting: `0x12 flash write failed` at exactly 488 bytes
+
+Firmware before 0.4.7 fails every OTA the same way, and the signature is exact:
+
+```
+[HI-OTA] connected: MTU=247 chunk=244 image=141084 bytes crc=0x...
+E NimBLERemoteValueAttribute: << writeValue failed, rc: 270
+[HI-OTA] DATA write failed after 488 bytes this buffer (488 total)
+[HI-OTA] device rejected the stream: state=0x12 err=0x12 received=488 (flash write failed)
+```
+
+with the node's own console showing only
+
+```
+[OTA] BEGIN size=141084 crc=0x...
+[OTA] central disconnected (0x08)
+```
+
+Read the numbers rather than the words. BEGIN succeeds because it touches no
+flash beyond `flash_img_init()`. The first two 244-byte DATA writes succeed
+because they only fill `stream_flash`'s 512-byte buffer. The third fails, at
+488 = 2 × 244 received, because it is the write that first fills that buffer and
+so triggers the **first real `flash_write()` of the whole transfer**. NimBLE's
+`rc: 270` is `0x10E`, i.e. ATT error `0x0E` "unlikely error" — exactly what
+`data_write()` returns when `flash_img_buffered_write()` fails. The `0x08` on
+the node is an HCI link supervision timeout, not a clean teardown.
+
+The cause is not the flash and not the radio separately, but the interaction.
+Writing RRAM with the controller running is a scheduled operation: upstream
+Zephyr's link layer makes `SOC_FLASH_NRF_RADIO_SYNC_TICKER` the RRAM driver's
+default, so every `flash_write()` runs inside a ticker-scheduled radio timeslot.
+At the driver's default `CONFIG_NRF_RRAM_WRITE_BUFFER_SIZE=1` that timeslot is
+500 µs long, and `nrf_flash_sync_set_context()` derives the flash ticker's period
+as `slot - 1700 µs` — an unsigned subtraction that wraps. On top of that,
+`nrf_flash_sync_check_time_limit()` returns true unconditionally on nRF54Lx, so
+one timeslot moves at most one 128-bit line: 16 bytes, meaning a single 512-byte
+flush would need 32 consecutive slots on that broken schedule. The write fails,
+and the radio events the flash ticker aborted along the way drop the link.
+
+The fix is two lines of `prj.conf`, documented in place there:
+`CONFIG_NRF_RRAM_WRITE_BUFFER_SIZE=32` (the maximum — the period becomes
+8000 − 1700 = 6300 µs and one timeslot carries a full 512 bytes) paired with
+`CONFIG_IMG_BLOCK_BUF_SIZE=512`, so every flush is one `flash_write()` that
+completes in one timeslot. Do not raise the image buffer past 512 without
+raising the write buffer with it; that silently restores the multi-timeslot path.
+
+Because the failure happens on the very first flash write, no partial image is
+ever written and the node stays on its old firmware. The fix has to be installed
+over SWD — a device that cannot complete an OTA cannot receive the fix for it.
 
 ## Production release and recovery checklist
 
