@@ -4,6 +4,8 @@
 #include "beacon.h"
 #include "hive_config.h"
 
+#include <stdint.h>
+
 #include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -16,6 +18,7 @@
 #include <zephyr/sys/crc.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/reboot.h>
+#include <zephyr/sys/util.h>
 
 #define OTA_ARM_TIMEOUT K_SECONDS(6)
 #define OTA_STALL_TIMEOUT K_MSEC(HIVE_OTA_STALL_TIMEOUT_MS)
@@ -33,6 +36,20 @@ static struct flash_img_context flash_ctx;
 static struct bt_conn *active_conn;
 static uint32_t expected_size, expected_crc, received, running_crc;
 static uint8_t state, error;
+/* Errno of the last failed flash operation, reported as the seventh STATUS
+ * byte. The low-power deployment image has no console at all (low-power.conf
+ * turns CONFIG_PRINTK off), so without this the only thing a field failure can
+ * say is "flash write failed" — which does not distinguish a slot that is too
+ * small (-EINVAL) from a radio timeslot that never arrived (-ETIMEDOUT). Zero
+ * means "no error recorded". */
+static int8_t op_errno;
+
+/* Zephyr errnos are small negatives, but clamp rather than trust that: a value
+ * that wrapped in the cast would read as a completely different fault. */
+static void record_errno(int rc)
+{
+	op_errno = (int8_t)CLAMP(rc, INT8_MIN, INT8_MAX);
+}
 
 static void arm_timeout_handler(struct k_work *work);
 static void reboot_handler(struct k_work *work);
@@ -66,10 +83,24 @@ BT_GATT_SERVICE_DEFINE(ota_service,
 		BT_GATT_PERM_READ, status_read, NULL, NULL),
 	BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
 
+/* state(1) + received(4 LE) + error(1) + errno(1). The first six bytes are the
+ * original layout and keep their meaning; relays that only know about those
+ * read a short value and are unaffected. */
+#define OTA_STATUS_LEN 7
+
+static void fill_status(uint8_t value[OTA_STATUS_LEN])
+{
+	value[0] = state;
+	sys_put_le32(received, &value[1]);
+	value[5] = error;
+	value[6] = (uint8_t)op_errno;
+}
+
 static void publish_status(void)
 {
-	uint8_t value[6] = { state, 0, 0, 0, 0, error };
-	sys_put_le32(received, &value[1]);
+	uint8_t value[OTA_STATUS_LEN];
+
+	fill_status(value);
 	(void)bt_gatt_notify(NULL, &ota_service.attrs[6], value, sizeof(value));
 }
 
@@ -105,6 +136,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		}
 		expected_size = sys_get_le32(&p[1]);
 		expected_crc = sys_get_le32(&p[5]);
+		op_errno = 0;
 		if (!expected_size ||
 		    flash_area_open(FIXED_PARTITION_ID(slot1_partition), &slot)) {
 			fail(OTA_ERR_BEGIN); return len;
@@ -118,6 +150,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		rc = flash_img_init(&flash_ctx);
 		printk("[OTA] flash_img_init rc=%d\n", rc);
 		if (rc) {
+			record_errno(rc);
 			fail(OTA_ERR_BEGIN); return len;
 		}
 		received = 0;
@@ -143,6 +176,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		if (rc) {
 			printk("[OTA] END flash flush failed offset=%u rc=%d\n",
 			       received, rc);
+			record_errno(rc);
 			fail(OTA_ERR_END); return len;
 		}
 		if (flash_img_bytes_written(&flash_ctx) != received) {
@@ -184,6 +218,7 @@ static ssize_t data_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	if (rc) {
 		printk("[OTA] flash write failed offset=%u len=%u rc=%d\n",
 		       received, len, rc);
+		record_errno(rc);
 		fail(OTA_ERR_WRITE); return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
 	}
 	running_crc = crc32_ieee_update(running_crc, buf, len);
@@ -195,8 +230,9 @@ static ssize_t data_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 static ssize_t status_read(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			   void *buf, uint16_t len, uint16_t offset)
 {
-	uint8_t value[6] = { state, 0, 0, 0, 0, error };
-	sys_put_le32(received, &value[1]);
+	uint8_t value[OTA_STATUS_LEN];
+
+	fill_status(value);
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, value, sizeof(value));
 }
 
@@ -262,7 +298,7 @@ BT_CONN_CB_DEFINE(ota_conn_callbacks) = { .connected = connected,
 
 void ota_init(void)
 {
-	state = OTA_IDLE; error = 0;
+	state = OTA_IDLE; error = 0; op_errno = 0;
 	/* TODO: use a filter-accept-list keyed to HiveHub after HiveHub supports
 	 * bonding. That stronger guardrail requires an out-of-scope relay change. */
 }
