@@ -57,6 +57,18 @@ jobs:
           test -z "$(find . -type d -name parts -print -quit)"
           test -z "$(find . -type f \( -name 'pio_guard*' -o -name '*.pyc' \) -print -quit)"
 
+          # Keep the upstream clock fixup independent of optional node labels.
+          # A topic branch once restored &xo/&lfclk/&xo24m references from an
+          # older base; upstream boards without those labels then failed in the
+          # devicetree parser before compilation.  The children are stable by
+          # name beneath &clock, which is the portable form used here.
+          overlay=firmware-nrf54lm20a/upstream_fixups.overlay
+          ! grep -Eq '^&(xo|lfclk|xo24m)[[:space:]]*\{' "$overlay"
+          grep -Eq '^&clock[[:space:]]*\{' "$overlay"
+          grep -Eq '^[[:space:]]*xo[[:space:]]*\{' "$overlay"
+          grep -Eq '^[[:space:]]*lfclk[[:space:]]*\{' "$overlay"
+          grep -Eq '^[[:space:]]*xo24m[[:space:]]*\{' "$overlay"
+
       - uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: hiveinside
