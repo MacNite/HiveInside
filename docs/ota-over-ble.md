@@ -54,6 +54,13 @@ image that was actually built, not from how the build was requested. The version
 same numbers the node advertises — so bumping them there moves the artifact
 name and the on-air version together.
 
+The HiveHub dashboard reads that name when the file is picked in its firmware
+upload form: it selects the `HiveInside` target and fills the version in from the
+`v<version>` token, ignoring the variant suffix and `.signed`. So
+`hiveinside-nrf54lm20a-v0.4.5-lowpower.signed.bin` uploads as HiveInside `0.4.5`
+with nothing typed in — another reason to upload the stamped copy rather than
+`zephyr.signed.bin`, whose name says nothing and fills in nothing.
+
 > A build without `--sysbuild` never emits a signed image or a bootable merged
 > hex — it builds the application alone. Build and flash releases with
 > `west --sysbuild` (see [`flashing.md`](flashing.md)).
