@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20.0)
 
-# SDK-specific devicetree fixups, applied on top of the auto-included
+# SDK-specific devicetree fixups are applied on top of the auto-included
 # app.overlay. They must be selected before find_package(Zephyr), because that
 # call preprocesses the devicetree. The NCS and upstream board definitions do
-# not expose the same node labels, so applying both overlays is not portable.
+# not expose the same nodes, so applying both overlays is not portable.
 #
 # A plain set() is correct and does not hide a caller's overlay: Zephyr reads
 # this with zephyr_get(EXTRA_DTC_OVERLAY_FILE SYSBUILD LOCAL MERGE REVERSE),
