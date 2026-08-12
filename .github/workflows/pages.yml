@@ -1,0 +1,60 @@
+# Deploy the static HiveInside website (website/) to GitHub Pages.
+#
+# One-time setup in the repo: Settings → Pages → "Build and deployment" →
+# Source: "GitHub Actions". After that, every push to main that touches
+# website/ republishes the site.
+#
+# The site is published twice: once at the Pages root and once under
+# /website/. GitHub Pages can only serve a branch from `/` or `/docs`, so the
+# two ways to publish this folder land on different URLs — "Deploy from a
+# branch" serves the repository as-is (…/HiveInside/website/), while this
+# workflow uploads the folder itself (…/HiveInside/). Shipping both means the
+# links other sites point at keep working whichever source is selected.
+name: Deploy website to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Stage the site at both / and /website/
+        run: |
+          set -eux
+          mkdir -p _site
+          cp -R website/. _site/
+          cp -R website _site/website
+
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

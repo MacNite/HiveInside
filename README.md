@@ -15,6 +15,11 @@ with a passive scan each cycle and bridges to the backend.
 > Part of the open beehive-monitoring ecosystem alongside **HiveScale** (weight /
 > external sensing) and **BeeCounter** (entrance traffic).
 
+📖 **[HiveInside website](https://macnite.github.io/HiveInside/website/)** — the
+feature set, hardware and BLE payload on one page (source in
+[`website/`](website)). The ecosystem hub is the
+[HiveHub site](https://macnite.github.io/HiveHub/website/).
+
 ---
 
 ## Why a separate device?
