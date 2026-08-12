@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HiveInside — battery-powered in-hive vibration, sound &amp; climate sensor</title>
+<meta name="description" content="HiveInside is an open-source, battery-powered in-hive BLE sensor on the Seeed XIAO nRF54LM20A Sense: comb vibration for swarm prediction, acoustic FFT bands, temperature, humidity and battery — broadcast as a beacon HiveHub picks up passively." />
+<meta name="color-scheme" content="light dark" />
+<!-- Set the theme before the stylesheet paints, so there's no light flash.
+     The storage key is shared with the HiveHub site on purpose: both are served
+     from the same github.io origin, so a choice made on one carries to the other. -->
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("hivehub-theme");
+      if (t !== "dark" && t !== "light") {
+        t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* localStorage blocked — fall back to the light default */ }
+  })();
+</script>
+<link rel="stylesheet" href="assets/style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%B3%3C/text%3E%3C/svg%3E" />
+<style>
+  /* ── HiveInside-specific styles ──────────────────────────────── */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+  table.data { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  table.data th, table.data td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.data th { color: var(--ink-soft); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+  table.data td.nowrap { white-space: nowrap; }
+  table.data tr:last-child td { border-bottom: none; }
+
+  details.frame { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); padding: 0; margin: 1rem 0 0; }
+  details.frame summary { cursor: pointer; font-weight: 700; padding: .9rem 1.1rem; }
+  details.frame[open] summary { border-bottom: 1px solid var(--line); }
+  details.frame .inner { padding: .9rem 1.1rem 1.1rem; }
+  details.frame .table-wrap { box-shadow: none; }
+
+  /* The two FFT band families, side by side. */
+  .bands { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .band-list { list-style: none; margin: .3rem 0 0; padding: 0; }
+  .band-list li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px dashed var(--line); font-size: .92rem; }
+  .band-list li:last-child { border-bottom: none; }
+  .band-list .hz { font-family: var(--mono); color: var(--ink-soft); font-size: .85rem; white-space: nowrap; }
+
+  /* The "part of the ecosystem" call-out that points back at the HiveHub hub. */
+  .hub {
+    background: var(--comb); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1.5rem; box-shadow: var(--shadow);
+  }
+  .hub h3 { margin: 0 0 .4rem; font-size: 1.15rem; }
+  .hub p { margin: 0 0 1rem; color: var(--ink-soft); }
+  .flow {
+    display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+    font-size: .9rem; color: var(--ink-soft); margin: 1rem 0 0;
+  }
+  .flow .node { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: .35rem .9rem; font-weight: 700; color: var(--ink); }
+  .flow .arrow { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header class="site-nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="logo">📳</span> HiveInside</a>
+    <nav>
+      <a href="#why">Why</a>
+      <a href="#features">Features</a>
+      <a href="#hardware">Hardware</a>
+      <a href="#data">Data</a>
+      <a href="#build">Build it</a>
+      <a href="https://macnite.github.io/HiveHub/website/">HiveHub</a>
+      <a href="https://github.com/MacNite/HiveInside">GitHub</a>
+      <button data-theme-toggle class="btn small ghost theme-toggle" type="button" aria-label="Toggle dark mode"></button>
+    </nav>
+  </div>
+</header>
+
+<a id="top"></a>
+<section class="hero" style="border-top:none">
+  <div class="wrap">
+    <span class="badge">🚧 Bring-up in progress — not yet hardware-validated in the field</span>
+    <h1>The sensor that lives<br>inside the hive.</h1>
+    <p class="lead">
+      HiveInside is a stand-alone, battery-powered in-hive sensor on a board the
+      size of a thumbnail. It measures comb <strong>vibration</strong>, hive
+      <strong>acoustics</strong>, <strong>temperature</strong> and
+      <strong>humidity</strong>, reduces each to FFT bands on the device, and
+      broadcasts the result as a BLE beacon — no cables into the hive, no pairing
+      window, no wake-sync schedule.
+    </p>
+    <div class="cta">
+      <a class="btn" href="#features">✨ What it does</a>
+      <a class="btn ghost" href="#hardware">🔧 Hardware</a>
+      <a class="btn ghost" href="#build">⚡ Build &amp; flash</a>
+      <a class="btn ghost" href="https://github.com/MacNite/HiveInside">★ Star on GitHub</a>
+    </div>
+    <div class="note info" style="max-width:72ch">
+      <strong>Part of the open beehive-monitoring ecosystem.</strong> A
+      <a href="https://macnite.github.io/HiveHub/website/">HiveHub</a> collector picks
+      HiveInside up in the passive BLE scan it already runs and forwards the readings
+      to your own backend, alongside weight and the rest of the hive.
+    </div>
+  </div>
+</section>
+
+<section id="why">
+  <div class="wrap">
+    <h2>Why a separate device?</h2>
+    <p class="sub">Because the one measurement that predicts swarming can't be taken from outside the hive.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">📳</div><h3>Vibration, not just sound</h3><p>Per the literature (Ramsey et al. 2020, <em>Sci. Rep.</em>), the frame-mounted accelerometer is the only reliable way to <strong>predict swarming up to ~30 days ahead</strong>. The critical signature sits around <strong>20 Hz</strong> — a vibration in the comb that a microphone simply cannot capture.</p></div>
+      <div class="card"><div class="ico">🔌</div><h3>No cables into the hive</h3><p>A wired in-hive accelerometer means a cable through the wall of every box, and a connector that propolis and moisture will eventually find. HiveInside puts the accelerometer, mic and climate sensor on one small wireless board that just sits inside.</p></div>
+      <div class="card"><div class="ico">🔋</div><h3>Made to be sealed and forgotten</h3><p>It runs from a small LiPo, switches its sensor rail off between measurements, and takes firmware updates over the air — so a node can be closed into an enclosure and left there.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Feature set</h2>
+    <p class="sub">Everything below is implemented in the firmware today. What is still
+       open is field validation on production hardware — see the status note at the bottom.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">📡</div><h3>BLE beacon transport</h3><p>The complete measurement — climate, vibration and acoustic FFT bands, battery — rides in a single <strong>29-byte manufacturer-data advertisement</strong>, repeated every second. Reading it needs no connection, no pairing, no wake-sync. Any number of receivers can listen at once, and it costs the sensor nothing extra.</p></div>
+      <div class="card"><div class="ico">📳</div><h3>Vibration FFT bands</h3><p>~1024 samples at ~400 Hz from the on-board 6-axis IMU, gravity removed, reduced to the swarm / fanning / activity bands — including the ~20 Hz pre-swarm signature.</p></div>
+      <div class="card"><div class="ico">🔊</div><h3>Acoustic FFT bands</h3><p>The on-board PDM microphone is reduced to five bands from sub-bass to 3 kHz, covering hum, piping and stress — plus RMS and peak level in dBFS.</p></div>
+      <div class="card"><div class="ico">🌡️</div><h3>Climate &amp; battery</h3><p>An external SHT40 gives temperature and humidity at 0.1 °C / 0.1 %RH resolution; the on-board nPM1300 fuel gauge reports battery voltage and state of charge with every measurement.</p></div>
+      <div class="card"><div class="ico">🔋</div><h3>Ultra-low power</h3><p>Between measurements the nRF54 idles with only the ~1 s advertiser running. The IMU + microphone rail is switched off for about <strong>98.9 % of each five-minute cycle</strong>, and a dedicated low-power build profile drops the console UART and the status LED for deployment.</p></div>
+      <div class="card"><div class="ico">📥</div><h3>Firmware over BLE (OTA)</h3><p>MCUboot dual-slot updates: a small GATT service streams the signed image into the secondary slot, verifies size and CRC-32, then test-swaps with <strong>automatic rollback</strong>. A dropped or corrupted transfer always leaves the node on its old image.</p></div>
+      <div class="card"><div class="ico">🐕</div><h3>Hardware watchdog</h3><p>A sealed node has no console and nobody watching it. <code>wdt31</code> is armed with a 60 s timeout and fed from the main loop, so a driver that wedges — a stuck I²C transfer, a PDM read that never returns — resets the node instead of quietly re-advertising a stale measurement forever.</p></div>
+      <div class="card"><div class="ico">🧩</div><h3>Ecosystem-shared bands</h3><p>The FFT bands are exactly the ones HiveHub and HiveScale use, so a value means the same thing wherever it is read — and a HiveInside reading can be compared to a wired sensor's directly.</p></div>
+      <div class="card"><div class="ico">🔎</div><h3>Auto-detecting sensors</h3><p>The accelerometer probe identifies the chip by <code>WHO_AM_I</code>, so an external LIS3DH / LIS2DH12 breakout at <code>0x18</code>/<code>0x19</code> runs the same pipeline as the on-board IMU — a bench setup behaves like the real thing.</p></div>
+      <div class="card"><div class="ico">🩹</div><h3>Graceful partial hardware</h3><p>Each sensor group carries its own validity flag. A missing or failed sensor prints <code>n/a</code> and clears its flag rather than sending zeroes, so the backend never mistakes a dead sensor for a real reading.</p></div>
+      <div class="card"><div class="ico">🏠</div><h3>Home Assistant</h3><p>Surface the data through HiveHub, or decode the advertisement locally with an ESPHome <code>esp32_ble_tracker</code> or a Bluetooth proxy — the frame layout is fully documented.</p></div>
+      <div class="card"><div class="ico">🛠️</div><h3>Zephyr + sysbuild</h3><p>One toolchain for everything: <code>west --sysbuild</code> builds MCUboot and the signed application together, and a checked-in <code>west.yml</code> pins the Zephyr revision so the workspace is reproducible. CI builds both profiles on every push.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="hardware">
+  <div class="wrap">
+    <h2>Hardware</h2>
+    <p class="sub">One module, one external sensor, one battery. The
+       <a href="https://www.seeedstudio.com/Seeed-Studio-XIAO-nRF54LM20A-Sense-p-6840.html">Seeed XIAO nRF54LM20A Sense</a>
+       folds the IMU, microphone, power management, charging and USB-C onto the board itself,
+       so the whole node is a module, an SHT40 on four wires, and a LiPo.</p>
+
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Function</th><th>Part</th><th class="nowrap">Interface</th><th>Where</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>3-axis vibration (swarm prediction, ~20 Hz)</td><td>LSM6DS3TR-C 6-axis IMU</td><td class="nowrap">I²C <code>0x6A</code></td><td>on-board</td></tr>
+          <tr><td>Acoustics (hum, piping, stress)</td><td>MSM261DGT006 PDM microphone</td><td class="nowrap">PDM</td><td>on-board</td></tr>
+          <tr><td>Temperature + humidity</td><td>SHT40</td><td class="nowrap">I²C <code>0x44</code></td><td>external</td></tr>
+          <tr><td>Battery voltage + state of charge</td><td>nPM1300 PMIC fuel gauge</td><td class="nowrap">—</td><td>on-board</td></tr>
+          <tr><td>Charging + USB-C</td><td>nPM1300 PMIC</td><td class="nowrap">USB-C</td><td>on-board</td></tr>
+          <tr><td>Flashing + serial console</td><td>SAMD11 CMSIS-DAP debugger</td><td class="nowrap">USB-C</td><td>on-board</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid" style="margin-top:1.5rem">
+      <div class="card"><h3>🔌 Wiring the SHT40</h3><p>Four wires to the XIAO's I²C header: <code>VIN → 3V3</code>, <code>GND → GND</code>, <code>SDA → D4</code>, <code>SCL → D5</code>. That is the entire external wiring. The on-board IMU sits on the internal <code>i2c30</code> bus and needs nothing.</p></div>
+      <div class="card"><h3>🔋 Battery</h3><p>A single-cell <strong>500 mAh LiPo</strong> on the XIAO's battery connector. The nPM1300 handles charging over USB-C and reports the fuel gauge with every measurement.</p></div>
+      <div class="card"><h3>📦 Enclosure</h3><p>A 3D-printable enclosure sized for the XIAO Sense, the SHT40 and the 500 mAh cell lives in <a href="https://github.com/MacNite/HiveInside/tree/main/enclosure"><code>enclosure/</code></a>.</p></div>
+      <div class="card"><h3>💾 Flash layout</h3><p>The board's 2 MiB RRAM is partitioned for MCUboot: a 64 KiB bootloader plus two matching <strong>449 KiB application slots</strong>, which is what makes the dual-slot OTA with rollback possible.</p></div>
+      <div class="card"><h3>🖥️ One cable for everything</h3><p>The on-board SAMD11 debugger means no external probe: <code>west flash</code> and the 115200 8N1 serial console both ride the same USB-C cable.</p></div>
+      <div class="card"><h3>🧪 Bench variant</h3><p>No Sense module to hand? Wire an external LIS3DH / LIS2DH12 to the same D4/D5 pads — the firmware detects it and runs the identical vibration pipeline.</p></div>
+    </div>
+
+    <p style="margin-top:1.5rem">
+      Full connection reference in
+      <a href="https://github.com/MacNite/HiveInside/blob/main/docs/wiring.md">docs/wiring.md</a>.
+    </p>
+  </div>
+</section>
+
+<section id="data">
+  <div class="wrap">
+    <h2>What it broadcasts</h2>
+    <p class="sub">Every five minutes (by default) the node reads all four sensors, runs the
+       FFTs on-device, and updates one advertisement. The Bluetooth controller then repeats
+       that advertisement every second while the CPU sleeps — so a receiver's scan never has
+       to be synchronised with anything.</p>
+
+    <div class="bands">
+      <div class="card">
+        <div class="ico">📳</div>
+        <h3>Vibration bands <span class="muted" style="font-weight:400">(mg, gravity removed)</span></h3>
+        <ul class="band-list">
+          <li><span><strong>Swarm</strong> — the pre-swarm signature</span><span class="hz">8–30 Hz</span></li>
+          <li><span><strong>Fanning</strong> — ventilation effort</span><span class="hz">30–100 Hz</span></li>
+          <li><span><strong>Activity</strong> — general colony motion</span><span class="hz">100–200 Hz</span></li>
+        </ul>
+        <p class="muted" style="margin-top:.7rem; font-size:.88rem">Plus acceleration RMS and peak.</p>
+      </div>
+      <div class="card">
+        <div class="ico">🔊</div>
+        <h3>Acoustic bands <span class="muted" style="font-weight:400">(dBFS)</span></h3>
+        <ul class="band-list">
+          <li><span><strong>Sub-bass</strong></span><span class="hz">50–150 Hz</span></li>
+          <li><span><strong>Hum</strong> — the resting colony</span><span class="hz">150–300 Hz</span></li>
+          <li><span><strong>Piping</strong> — queen signalling</span><span class="hz">300–550 Hz</span></li>
+          <li><span><strong>Stress</strong></span><span class="hz">550–1500 Hz</span></li>
+          <li><span><strong>High</strong></span><span class="hz">1500–3000 Hz</span></li>
+        </ul>
+        <p class="muted" style="margin-top:.7rem; font-size:.88rem">Plus microphone RMS and peak.</p>
+      </div>
+    </div>
+
+    <details class="frame">
+      <summary>📦 The 29-byte measurement frame (for anyone writing their own decoder)</summary>
+      <div class="inner">
+        <p class="muted">Manufacturer-specific data, company ID <code>0x02E5</code>, magic <code>0x48</code>
+           (<code>'H'</code>), format version <code>2</code>. All multi-byte fields are little-endian and
+           offsets include the two company-ID bytes. Each group is only meaningful when its validity
+           bit is set — a failed sensor clears the bit rather than sending zeroes.</p>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th class="nowrap">Offset</th><th>Field</th><th>Encoding</th><th class="nowrap">Valid when</th></tr></thead>
+            <tbody>
+              <tr><td class="nowrap"><code>0..1</code></td><td>Company ID</td><td><code>0x02E5</code></td><td>always</td></tr>
+              <tr><td class="nowrap"><code>2</code></td><td>Magic</td><td><code>0x48</code> (<code>H</code>)</td><td>always</td></tr>
+              <tr><td class="nowrap"><code>3</code></td><td>Format version</td><td><code>2</code></td><td>always</td></tr>
+              <tr><td class="nowrap"><code>4</code></td><td>Validity flags</td><td>bit 0 climate, 1 accel, 2 mic, 3 battery</td><td>always</td></tr>
+              <tr><td class="nowrap"><code>5..6</code></td><td>Temperature</td><td><code>int16</code>, 0.1 °C/LSB</td><td>climate</td></tr>
+              <tr><td class="nowrap"><code>7..8</code></td><td>Humidity</td><td><code>uint16</code>, 0.1 %RH/LSB</td><td>climate</td></tr>
+              <tr><td class="nowrap"><code>9..10</code></td><td>Battery voltage</td><td><code>uint16</code>, 1 mV/LSB</td><td>battery</td></tr>
+              <tr><td class="nowrap"><code>11</code></td><td>Battery charge</td><td><code>uint8</code>, % (0–100)</td><td>battery</td></tr>
+              <tr><td class="nowrap"><code>12..13</code></td><td>Acceleration RMS</td><td><code>uint16</code>, 0.1 mg/LSB</td><td>accel</td></tr>
+              <tr><td class="nowrap"><code>14..19</code></td><td>Vibration bands — swarm, fanning, activity</td><td>3× <code>uint16</code>, 0.1 mg/LSB</td><td>accel</td></tr>
+              <tr><td class="nowrap"><code>20</code></td><td>Microphone RMS</td><td><code>int8</code>, 1 dBFS/LSB</td><td>mic</td></tr>
+              <tr><td class="nowrap"><code>21..25</code></td><td>Acoustic bands — sub-bass, hum, piping, stress, high</td><td>5× <code>int8</code>, 1 dBFS/LSB</td><td>mic</td></tr>
+              <tr><td class="nowrap"><code>26..27</code></td><td>Acceleration peak <em>(v2)</em></td><td><code>uint16</code>, 0.1 mg/LSB</td><td>accel</td></tr>
+              <tr><td class="nowrap"><code>28</code></td><td>Microphone peak <em>(v2)</em></td><td><code>int8</code>, 1 dBFS/LSB</td><td>mic</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" style="margin-top:.8rem">Version 2 keeps every version-1 field at the same
+          offset, so an older decoder that only understands the 26-byte prefix safely ignores the two
+          trailing peaks and keeps working. An active scan additionally receives a compact identity
+          record (board ID and firmware version) and the device name <code>HiveInside</code> in the
+          scan response — the measurement advertisement itself is unchanged.</p>
+        <p style="margin:.6rem 0 0"><a href="https://github.com/MacNite/HiveInside/blob/main/firmware-nrf54lm20a/README.md#ble-data-transfer">Full frame documentation →</a></p>
+      </div>
+    </details>
+
+    <h3 style="margin-top:2rem">What it looks like on the console</h3>
+    <pre>---- HiveInside readout ----
+  climate : 24.31 C   47.8 %RH
+  accel   : x=-3.2 y=1.8 z=1004.6 mg  |a|=1004.6 mg
+  accel AC: rms=2.4 peak=9.1 mg  (1024@416Hz)
+  vib FFT : swarm=0.42 fan=0.18 act=0.09 mg
+  sound   : rms=-61.4 dBFS  peak=-42.1 dBFS  (8000 frames)
+  ac FFT  : sub=-58.2 hum=-49.7 pipe=-63.1 stress=-71.4 hi=-88.0 dBFS
+  battery : 4.011 V  ~78%
+----------------------------
+[BLE] measurement advertised (flags=0x0f)</pre>
+  </div>
+</section>
+
+<section id="build">
+  <div class="wrap">
+    <h2>Build &amp; flash it</h2>
+    <p class="sub">The firmware is a Zephyr application built with <strong>west and sysbuild</strong> —
+       the only supported build path. Everything below runs over the single USB-C cable; no external
+       debug probe is needed.</p>
+    <div class="steps">
+
+      <div class="step"><div class="n">1</div><div>
+        <h3>Set up a west workspace</h3>
+        <p>The manifest pins the Zephyr revision the firmware is built against, so the workspace is reproducible.</p>
+        <pre>west init -m https://github.com/MacNite/HiveInside hiveinside-workspace
+cd hiveinside-workspace &amp;&amp; west update</pre>
+      </div></div>
+
+      <div class="step"><div class="n">2</div><div>
+        <h3>Build the bootable image</h3>
+        <p><code>--sysbuild</code> is not optional: the firmware boots through MCUboot, so a bootable
+           device needs the bootloader <strong>and</strong> the signed application — and only a sysbuild
+           build produces both (plus the OTA payload).</p>
+        <pre>west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+  -d debug hiveinside/firmware-nrf54lm20a</pre>
+        <div class="note warn">⚠️ Never flash a build made without <code>--sysbuild</code>. With MCUboot
+          enabled the application links at the slot-0 offset, so flashing it alone leaves nothing at
+          <code>0x0</code>: the device goes silent — no serial, no BLE.</div>
+      </div></div>
+
+      <div class="step"><div class="n">3</div><div>
+        <h3>Flash and watch it</h3>
+        <p><code>west flash</code> programs MCUboot and the signed app through the on-board debugger.
+           The console runs at 115200 8N1 on the same cable.</p>
+        <pre>west flash -d debug
+picocom -b 115200 /dev/ttyACM0            # Linux
+picocom -b 115200 /dev/cu.usbmodemXXXX    # macOS</pre>
+        <p class="muted">Prefer an IDE? The nRF Connect extension for VS Code / VSCodium is documented in
+          <a href="https://github.com/MacNite/HiveInside/blob/main/docs/vscode-build.md">docs/vscode-build.md</a>.</p>
+      </div></div>
+
+      <div class="step"><div class="n">4</div><div>
+        <h3>Build the deployment image</h3>
+        <p>The default build keeps the UART console, floating-point <code>printk()</code> and the
+           measurement LED for bring-up. For a sealed, battery-powered node, layer the low-power
+           profile on top — it drops all three and stops the sensor island being held powered from reset.</p>
+        <pre>west build --sysbuild -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+  -d lowpower hiveinside/firmware-nrf54lm20a -- \
+  -DEXTRA_CONF_FILE=low-power.conf \
+  -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay</pre>
+        <p class="muted">BLE advertising and OTA are unchanged by the profile. See
+          <a href="https://github.com/MacNite/HiveInside/blob/main/docs/low-power.md">docs/low-power.md</a>
+          for the full audit and the measurement method.</p>
+      </div></div>
+
+      <div class="step"><div class="n">5</div><div>
+        <h3>Put it in a hive</h3>
+        <p>Print the enclosure, seal the node in with the SHT40 and battery, and pair it from HiveHub
+           by its identity address as <strong>HiveInside (nRF54LM20A) — beacon</strong>. From then on
+           updates go over the air.</p>
+        <p>Each build writes a version-stamped copy of the signed image, e.g.
+           <code>hiveinside-nrf54lm20a-v0.4.5-lowpower.signed.bin</code> — upload <em>that</em> file
+           rather than <code>zephyr.signed.bin</code>, so a console-enabled bring-up image can never be
+           mistaken for a deployment one. The HiveHub dashboard reads the target and version straight
+           out of the filename.</p>
+        <p><a class="btn" href="https://macnite.github.io/HiveHub/website/">🐝 Set up a HiveHub to collect it</a></p>
+      </div></div>
+
+    </div>
+  </div>
+</section>
+
+<section id="ecosystem">
+  <div class="wrap">
+    <h2>Where it fits</h2>
+    <p class="sub">HiveInside is a sensor, not a system — it has no Wi-Fi and talks to nobody
+       directly. A HiveHub collector is what turns its broadcasts into stored, charted history.</p>
+
+    <div class="hub">
+      <h3>🐝 HiveHub — the hub of the ecosystem</h3>
+      <p>HiveHub is the ESP32 data collector for up to 16 hives: weight, temperature, humidity,
+         sound, vibration and power state, sent to your own self-hosted FastAPI + PostgreSQL
+         backend with a built-in dashboard. It already runs a shared passive BLE scan, so picking
+         up a HiveInside node costs it nothing extra — pair it and the readings appear alongside
+         the rest of the hive.</p>
+      <a class="btn" href="https://macnite.github.io/HiveHub/website/">Open the HiveHub site →</a>
+      <div class="flow">
+        <span class="node">📳 HiveInside</span>
+        <span class="arrow">──BLE beacon──▶</span>
+        <span class="node">🐝 HiveHub</span>
+        <span class="arrow">──HTTPS──▶</span>
+        <span class="node">🗄️ Your backend</span>
+        <span class="arrow">──▶</span>
+        <span class="node">📊 Dashboard / HivePal</span>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:1.5rem">
+      <div class="card"><h3>⚖️ HiveScale</h3><p>Weight and external sensing — the other half of the ecosystem, and the relay that streams an OTA image down to HiveInside over BLE.</p><p><a href="https://github.com/MacNite/HiveScale">GitHub →</a></p></div>
+      <div class="card"><h3>🐝 BeeCounter</h3><p>Entrance traffic counting: bees in and out, bridged into the same backend.</p></div>
+      <div class="card"><h3>🏠 Home Assistant</h3><p>Take the data from HiveHub, or decode the advertisement locally with ESPHome or a Bluetooth proxy.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/homeassistant.md">docs/homeassistant.md →</a></p></div>
+    </div>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="wrap">
+    <h2>Dig deeper</h2>
+    <div class="grid">
+      <div class="card"><h3>📻 Firmware &amp; frame</h3><p>The readout format, the full BLE frame layout, the watchdog, and the roadmap.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/firmware-nrf54lm20a/README.md">firmware-nrf54lm20a/README.md →</a></p></div>
+      <div class="card"><h3>🔌 Wiring</h3><p>SHT40, battery and the optional external accelerometer.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/wiring.md">docs/wiring.md →</a></p></div>
+      <div class="card"><h3>⚡ Flashing</h3><p>Flashing details, the external-probe alternative, and what to do when a device is silent.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/flashing.md">docs/flashing.md →</a></p></div>
+      <div class="card"><h3>🔋 Low power</h3><p>The code-and-hardware audit, the deployment build profile, and how to measure the result properly.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/low-power.md">docs/low-power.md →</a></p></div>
+      <div class="card"><h3>📥 OTA over BLE</h3><p>The streaming relay, the partition layout, and the release artifact naming.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/ota-over-ble.md">docs/ota-over-ble.md →</a></p></div>
+      <div class="card"><h3>🧑‍💻 Building in VS Code</h3><p>The nRF Connect extension setup with the <code>debug</code> and <code>lowpower</code> configurations.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/vscode-build.md">docs/vscode-build.md →</a></p></div>
+    </div>
+
+    <div class="note warn" style="max-width:75ch; margin-top:1.5rem">
+      🚧 <strong>Status: bring-up in progress; not yet hardware-validated in the field.</strong>
+      The firmware reads all four sensors, runs the vibration and acoustic FFTs, prints the readout,
+      broadcasts the HiveHub-compatible beacon, and accepts firmware over BLE on top of MCUboot. What
+      is still outstanding is a season in a real hive — battery figures on this page are planning
+      estimates from component data, not measurements of an assembled board.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap" style="display:flex; gap:1rem; justify-content:space-between; width:100%; flex-wrap:wrap">
+    <span>📳 HiveInside — MIT © 2026 Maximilian Nitschke</span>
+    <span><a href="https://github.com/MacNite/HiveInside">GitHub</a> · <a href="https://macnite.github.io/HiveHub/website/">HiveHub</a> · <a href="#hardware">Hardware</a> · <a href="#build">Build it</a></span>
+  </div>
+</footer>
+
+<script src="assets/theme.js"></script>
+</body>
+</html>
