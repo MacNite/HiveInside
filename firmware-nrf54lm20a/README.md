@@ -88,12 +88,25 @@ the device is formally *non-discoverable*, so scanners that filter on the
 general/limited discoverable bits may not list it even though it is connectable.
 HiveHub's passive scan and a direct connect by address are unaffected.
 
-The human-readable device name `HiveInside` rides in the scan response instead.
-This preserves the complete manufacturer payload for HiveHub's passive scanner
-while letting an active setup scan display a friendly name. The source also
-declares the manufacturer name as `HiveInside`; on the BLE wire,
-manufacturer-specific data contains only the numeric company ID (`0x02E5`), as
-required by the BLE AD format.
+The human-readable device name rides in the scan response instead. This
+preserves the complete manufacturer payload for HiveHub's passive scanner while
+letting an active setup scan display a friendly name. The source also declares
+the manufacturer name as `HiveInside`; on the BLE wire, manufacturer-specific
+data contains only the numeric company ID (`0x02E5`), as required by the BLE AD
+format.
+
+The advertised name is `HiveInside-XXXX`, where the four hex digits are the last
+two bytes of the node's own BLE address, printed the way scanners display them.
+Without the suffix every node in an apiary shows up as an identical `HiveInside`
+row, and picking the right one for setup or an OTA means reading addresses out
+of a scanner's detail view. Two nodes can still share four digits — the suffix
+separates the handful of hives within radio range, it is not an identifier; the
+full address remains the unique key, and nothing on the wire keys off the name.
+
+The suffix is applied at boot, once the Bluetooth stack has loaded the identity
+address, and the same string is published as the GAP Device Name characteristic
+so a connected client and a scan list agree. Build with
+`-DHIVEINSIDE_DEVICE_NAME_ADDR_SUFFIX=0` for a fixed, build-time-known name.
 
 Active scans also receive a compact manufacturer-data identity record in the
 scan response. It does not alter the full 29-byte measurement advertisement or
@@ -172,7 +185,7 @@ Example output:
 ```
 [HiveInside] nrf54lm20a fw 0.4.5 | USB + HiveHub BLE beacon
 [PWR] nPM1300 LDO1 at 3.3V (IMU + mic rail)
-[BLE] ready; name=HiveInside manufacturer=HiveInside id=0x02e5 interval=1000 ms
+[BLE] ready; name=HiveInside-4C7A manufacturer=HiveInside id=0x02e5 interval=1000 ms
 [SHT40] present on i2c@...
 [ACCEL] LSM6DS3TR-C at 0x6A on i2c@...
 ---- HiveInside readout ----

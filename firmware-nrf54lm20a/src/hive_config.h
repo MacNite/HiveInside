@@ -63,6 +63,29 @@
 #ifndef HIVEINSIDE_DEVICE_NAME
 #define HIVEINSIDE_DEVICE_NAME "HiveInside"
 #endif
+
+/* Append the last two bytes of the device's own BLE address to the advertised
+ * name, e.g. "HiveInside-4C7A".
+ *
+ * Every node otherwise advertises the identical string, so an apiary with
+ * several of them in range shows a list of indistinguishable "HiveInside"
+ * entries — during setup or an OTA there is no way to tell which row is the
+ * hive in front of you without reading the address out of a scanner's detail
+ * view. The suffix is those same address bytes, printed the way scanners
+ * display them (most significant first), so the name and the address on screen
+ * agree.
+ *
+ * The two low bytes are taken because they are the ones that actually differ:
+ * the address is a random static one generated per device. Two nodes can still
+ * collide on four hex digits — the suffix disambiguates a handful of hives in
+ * radio range, it is not an identifier. The full address remains the unique
+ * key, and nothing on the wire keys off the name.
+ *
+ * Set to 0 for a fixed, build-time-known name. beacon.c then advertises
+ * HIVEINSIDE_DEVICE_NAME verbatim. */
+#ifndef HIVEINSIDE_DEVICE_NAME_ADDR_SUFFIX
+#define HIVEINSIDE_DEVICE_NAME_ADDR_SUFFIX 1
+#endif
 #ifndef HIVEINSIDE_MANUFACTURER_NAME
 #define HIVEINSIDE_MANUFACTURER_NAME "HiveInside"
 #endif
