@@ -6,7 +6,10 @@
  * prefix unchanged preserves core-data compatibility, while the complete
  * measurement remains in the primary advertising packet for passive scans.
  * Active setup scans can additionally read the local name and the compact
- * board/firmware identity record from the response.
+ * board/firmware identity record from the response. The advertised name
+ * carries the last two bytes of the device's own BLE address (see
+ * device_name_init() below), so several nodes in range stay distinguishable
+ * in a scanner list without any per-unit build or provisioning step.
  */
 #include "beacon.h"
 #include "hive_config.h"
@@ -54,9 +57,21 @@ BUILD_ASSERT(HIVEINSIDE_FW_VERSION_MAJOR >= 0 && HIVEINSIDE_FW_VERSION_MAJOR <= 
 	     HIVEINSIDE_FW_VERSION_PATCH >= 0 && HIVEINSIDE_FW_VERSION_PATCH <= UINT8_MAX,
 	     "each firmware version component must fit the one-byte identity field");
 
+/* The advertised local name is HIVEINSIDE_DEVICE_NAME with the last two bytes
+ * of the device's BLE address appended as "-AB:12", i.e. six extra characters.
+ * The buffer is filled once at init and then referenced by every scan-response
+ * update, so it is sized here rather than on the stack. */
+#define DEVICE_NAME_SUFFIX_LEN 6U
+
+static char device_name[sizeof(HIVEINSIDE_DEVICE_NAME) + DEVICE_NAME_SUFFIX_LEN];
+static uint8_t device_name_len;
+
 /* A legacy scan response is limited to 31 bytes. Each AD structure adds a
- * length and type byte, hence the two +2 terms below. */
-BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +
+ * length and type byte, hence the two +2 terms below. The name is checked at
+ * its longest — the full suffixed form — because that is what actually goes on
+ * the air; a name that only fits without its address suffix would still be
+ * rejected at runtime by the controller. */
+BUILD_ASSERT((sizeof(device_name) - 1U + 2U) +
 	     (sizeof(identity) + 2U) <= 31U,
 	     "name and identity exceed legacy scan-response capacity");
 
@@ -193,8 +208,7 @@ static int advertising_start(void)
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 	};
 	const struct bt_data scan_response[] = {
-		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
-			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+		BT_DATA(BT_DATA_NAME_COMPLETE, device_name, device_name_len),
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
 	};
 	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
@@ -234,6 +248,67 @@ static void adv_restart_handler(struct k_work *work)
 	       (unsigned)adv_restart_attempts);
 }
 
+/* Build the advertised name once, after bt_enable() has established the
+ * identity address.
+ *
+ * The suffix is the last two bytes of that address, formatted the way a
+ * scanner prints them, so "HiveInside-AB:12" is literally the tail of the
+ * address shown next to it in the list. bt_addr_le_t stores the address
+ * little-endian (val[5] is the leading byte a scanner prints), hence val[1]
+ * and val[0] here.
+ *
+ * That the two agree is a property of how this firmware advertises:
+ * advertising_start() passes BT_LE_ADV_OPT_USE_IDENTITY, so the packets carry
+ * the identity address itself rather than a rotating resolvable private
+ * address. On the nRF54 the identity address is derived from the factory
+ * FICR.DEVICEADDR, which makes the suffix stable across reboots and reflashes
+ * and unique per unit without any provisioning step.
+ *
+ * If the identity cannot be read the plain product name is used: an unsuffixed
+ * name is a far better failure than no advertising at all.
+ *
+ * The two bytes are formatted by hand rather than with snprintk() on purpose.
+ * The low-power deployment profile sets CONFIG_PRINTK=n, under which Zephyr
+ * replaces snprintk() with a stub that writes nothing and returns 0 — the name
+ * would silently become empty in exactly the build that ships to hives, while
+ * the console-enabled bringup build looked fine.
+ */
+static void device_name_init(void)
+{
+	static const char hex_digits[] = "0123456789ABCDEF";
+	bt_addr_le_t addrs[CONFIG_BT_ID_MAX];
+	size_t count = ARRAY_SIZE(addrs);
+	size_t len = sizeof(HIVEINSIDE_DEVICE_NAME) - 1U;
+
+	memcpy(device_name, HIVEINSIDE_DEVICE_NAME, len);
+	bt_id_get(addrs, &count);
+
+	if (count > 0U) {
+		const uint8_t *val = addrs[0].a.val;
+
+		device_name[len++] = '-';
+		device_name[len++] = hex_digits[val[1] >> 4];
+		device_name[len++] = hex_digits[val[1] & 0x0fU];
+		device_name[len++] = ':';
+		device_name[len++] = hex_digits[val[0] >> 4];
+		device_name[len++] = hex_digits[val[0] & 0x0fU];
+	} else {
+		printk("[BLE] no identity address; advertising unsuffixed name\n");
+	}
+
+	device_name[len] = '\0';
+	device_name_len = (uint8_t)len;
+
+	/* Keep the GAP Device Name characteristic in step with the advertised
+	 * one, so a client that connects and reads it (rather than trusting the
+	 * scan response) sees the same identity. */
+	int err = bt_set_name(device_name);
+
+	if (err != 0) {
+		printk("[BLE] GAP name not updated (%d)\n", err);
+	}
+}
+
 int beacon_init(void)
 {
 	int err = bt_enable(NULL);
@@ -242,8 +317,9 @@ int beacon_init(void)
 		printk("[BLE] init failed (%d)\n", err);
 		return err;
 	}
+	device_name_init();
 	printk("[BLE] ready; name=%s manufacturer=%s id=0x%04x interval=%u ms\n",
-	       HIVEINSIDE_DEVICE_NAME, HIVEINSIDE_MANUFACTURER_NAME,
+	       device_name, HIVEINSIDE_MANUFACTURER_NAME,
 	       HIVEINSIDE_COMPANY_ID, BLE_ADV_INTERVAL_MS);
 	bluetooth_ready = true;
 	return 0;
@@ -271,8 +347,8 @@ int beacon_publish(const struct measurement *m)
 			BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 		};
 		const struct bt_data scan_response[] = {
-			BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
-				sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+			BT_DATA(BT_DATA_NAME_COMPLETE, device_name,
+				device_name_len),
 			BT_DATA(BT_DATA_MANUFACTURER_DATA, identity,
 				sizeof(identity)),
 		};

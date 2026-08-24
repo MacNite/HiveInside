@@ -43,7 +43,7 @@
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
 #define HIVEINSIDE_FW_VERSION_MINOR 4
-#define HIVEINSIDE_FW_VERSION_PATCH 7
+#define HIVEINSIDE_FW_VERSION_PATCH 8
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
 #define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
@@ -57,9 +57,13 @@
 /* Stable wire identifier for the Seeed XIAO nRF54LM20A board. */
 #define HIVEINSIDE_BOARD_ID 2U
 
-/* Human-readable identity shown by active BLE scanners during setup. The
- * manufacturer name is also kept here as explicit product metadata; BLE
- * manufacturer-data packets carry a numeric company ID, not a name string. */
+/* Human-readable identity shown by active BLE scanners during setup. beacon.c
+ * advertises this name with the last two bytes of the node's own BLE address
+ * appended — "HiveInside-AB:12" — so several nodes in range stay tellable apart
+ * in a scanner list; this macro is the prefix, not the complete advertised
+ * name. The manufacturer name is also kept here as explicit product metadata;
+ * BLE manufacturer-data packets carry a numeric company ID, not a name
+ * string. */
 #ifndef HIVEINSIDE_DEVICE_NAME
 #define HIVEINSIDE_DEVICE_NAME "HiveInside"
 #endif

@@ -88,12 +88,28 @@ the device is formally *non-discoverable*, so scanners that filter on the
 general/limited discoverable bits may not list it even though it is connectable.
 HiveHub's passive scan and a direct connect by address are unaffected.
 
-The human-readable device name `HiveInside` rides in the scan response instead.
-This preserves the complete manufacturer payload for HiveHub's passive scanner
-while letting an active setup scan display a friendly name. The source also
-declares the manufacturer name as `HiveInside`; on the BLE wire,
-manufacturer-specific data contains only the numeric company ID (`0x02E5`), as
-required by the BLE AD format.
+The human-readable device name rides in the scan response instead. This
+preserves the complete manufacturer payload for HiveHub's passive scanner while
+letting an active setup scan display a friendly name. The source also declares
+the manufacturer name as `HiveInside`; on the BLE wire, manufacturer-specific
+data contains only the numeric company ID (`0x02E5`), as required by the BLE AD
+format.
+
+The advertised name is not the bare product name but `HiveInside-AB:12`, where
+the suffix is the last two bytes of the node's own BLE address, formatted the
+way a scanner prints them. Several hives in range therefore appear as distinct
+entries, and the entry is matched to a physical node by reading the tail of the
+address shown beside it. Advertising uses the identity address
+(`BT_LE_ADV_OPT_USE_IDENTITY`), which on the nRF54 comes from the factory
+`FICR.DEVICEADDR`: the suffix is unique per unit and stable across reboots,
+reflashes and OTA updates, with nothing to provision per device. The same name
+is written to the GAP Device Name characteristic, so a client that connects and
+reads it sees the same string.
+
+The name and the identity record together occupy 28 of the 31 scan-response
+bytes; a `BUILD_ASSERT` in `src/beacon.c` holds that budget. Nothing about the
+primary advertisement changes, so HiveHub's passive decoding and any name-based
+filtering on the `HiveInside` prefix are unaffected.
 
 Active scans also receive a compact manufacturer-data identity record in the
 scan response. It does not alter the full 29-byte measurement advertisement or
