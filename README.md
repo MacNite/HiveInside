@@ -55,6 +55,11 @@ value means the same thing across the ecosystem.
   acoustic FFT bands, battery) broadcasts continuously as a 29-byte
   manufacturer-data advertisement that HiveHub decodes with a passive scan.
   Reading the data needs no connection, pairing window, or wake-sync schedule.
+- **Per-node identity** — each node advertises as `HiveInside-XXXX`, where the
+  four hex digits are the last two bytes of its BLE address. Several nodes in
+  one yard are therefore distinguishable in a scanner and in HiveHub's dashboard
+  without any provisioning step; the suffix is derived from the address, so it
+  survives a factory erase and a firmware update.
 - **Ultra-low power** — the nRF54 idles with only the ~1 s advertiser
   running (a few µA); no deep-sleep rendezvous machinery required. The sensor
   rail (IMU + microphone) is switched off between the five-minute measurements.

@@ -42,8 +42,8 @@
  * stamped artifact name disagree with the bytes on the air. Bump it here.
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
-#define HIVEINSIDE_FW_VERSION_MINOR 4
-#define HIVEINSIDE_FW_VERSION_PATCH 7
+#define HIVEINSIDE_FW_VERSION_MINOR 5
+#define HIVEINSIDE_FW_VERSION_PATCH 0
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
 #define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
@@ -59,10 +59,25 @@
 
 /* Human-readable identity shown by active BLE scanners during setup. The
  * manufacturer name is also kept here as explicit product metadata; BLE
- * manufacturer-data packets carry a numeric company ID, not a name string. */
+ * manufacturer-data packets carry a numeric company ID, not a name string.
+ *
+ * This is only the *prefix*: beacon_init() appends a hyphen and the last two
+ * bytes of the node's identity address, so what actually goes on the air is
+ * "HiveInside-8A3F". Every node advertising the same bare "HiveInside" made a
+ * yard with more than one of them unreadable — a scanner listed several
+ * identical entries, and the only thing telling them apart was the raw address
+ * a beekeeper has no reason to have memorized. The suffix is derived from the
+ * address rather than stored, so it needs no provisioning step and survives a
+ * factory erase.
+ */
 #ifndef HIVEINSIDE_DEVICE_NAME
 #define HIVEINSIDE_DEVICE_NAME "HiveInside"
 #endif
+
+/* "-" plus four hex digits, appended to HIVEINSIDE_DEVICE_NAME. */
+#define HIVEINSIDE_DEVICE_NAME_SUFFIX_LEN 5U
+#define HIVEINSIDE_DEVICE_NAME_MAX \
+	(sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + HIVEINSIDE_DEVICE_NAME_SUFFIX_LEN)
 #ifndef HIVEINSIDE_MANUFACTURER_NAME
 #define HIVEINSIDE_MANUFACTURER_NAME "HiveInside"
 #endif
