@@ -5,8 +5,10 @@
  * acceleration and microphone peaks at bytes 26..28. Keeping the version-1
  * prefix unchanged preserves core-data compatibility, while the complete
  * measurement remains in the primary advertising packet for passive scans.
- * Active setup scans can additionally read the local name and the compact
- * board/firmware identity record from the response.
+ * Active setup scans can additionally read the local name — which carries the
+ * last two bytes of the node's address, so several nodes in one yard are
+ * distinguishable — and the compact board/firmware identity record from the
+ * response.
  */
 #include "beacon.h"
 #include "hive_config.h"
@@ -55,10 +57,76 @@ BUILD_ASSERT(HIVEINSIDE_FW_VERSION_MAJOR >= 0 && HIVEINSIDE_FW_VERSION_MAJOR <= 
 	     "each firmware version component must fit the one-byte identity field");
 
 /* A legacy scan response is limited to 31 bytes. Each AD structure adds a
- * length and type byte, hence the two +2 terms below. */
-BUILD_ASSERT((sizeof(HIVEINSIDE_DEVICE_NAME) - 1U + 2U) +
-	     (sizeof(identity) + 2U) <= 31U,
+ * length and type byte, hence the two +2 terms below. The name is measured at
+ * its full length — prefix plus the "-XXXX" address suffix beacon_init() adds —
+ * because that is what actually goes on the air. */
+BUILD_ASSERT((HIVEINSIDE_DEVICE_NAME_MAX + 2U) + (sizeof(identity) + 2U) <= 31U,
 	     "name and identity exceed legacy scan-response capacity");
+
+/* bt_set_name() copies into a buffer sized by CONFIG_BT_DEVICE_NAME_MAX; if
+ * that is trimmed below the name this firmware builds, the GAP characteristic
+ * silently disagrees with the scan response. */
+BUILD_ASSERT(CONFIG_BT_DEVICE_NAME_MAX >= HIVEINSIDE_DEVICE_NAME_MAX,
+	     "CONFIG_BT_DEVICE_NAME_MAX is too small for the advertised name");
+
+/* The advertised local name, built once in beacon_init(): HIVEINSIDE_DEVICE_NAME
+ * with a hyphen and the last two bytes of the identity address appended, e.g.
+ * "HiveInside-8A3F". It is a runtime buffer rather than a literal because the
+ * address is only known after bt_enable() has brought the identity up, and it is
+ * kept in one place so the scan response, the GAP name a connected OTA client
+ * reads, and the boot banner cannot drift apart.
+ *
+ * Until the buffer is filled it holds the bare prefix, so a node whose address
+ * could not be read still advertises a usable — if not unique — name instead of
+ * an empty one.
+ */
+static char adv_name[HIVEINSIDE_DEVICE_NAME_MAX + 1U] = HIVEINSIDE_DEVICE_NAME;
+static size_t adv_name_len = sizeof(HIVEINSIDE_DEVICE_NAME) - 1U;
+
+/* Append "-XXXX" from the identity address. bt_id_get() reports the addresses
+ * the stack created during bt_enable(), so this must run after it. The two
+ * bytes used are val[1] and val[0] — a bt_addr_t is little-endian, so those are
+ * the last two of the address as it is printed and as HiveHub shows it, which
+ * is what makes the suffix something a beekeeper can match against a label.
+ */
+static void build_adv_name(void)
+{
+	bt_addr_le_t addrs[CONFIG_BT_ID_MAX];
+	size_t count = ARRAY_SIZE(addrs);
+
+	bt_id_get(addrs, &count);
+	if (count == 0U) {
+		printk("[BLE] no identity address; advertising as %s\n", adv_name);
+		return;
+	}
+
+	size_t room = sizeof(adv_name) - adv_name_len;
+	int written = snprintk(adv_name + adv_name_len, room, "-%02X%02X",
+			       addrs[0].a.val[1], addrs[0].a.val[0]);
+
+	/* snprintk returns what it *would* have written, so a truncated suffix
+	 * reports a length at or past the room it was given. Either way the
+	 * buffer now holds a partial suffix, which is worse on the air than none
+	 * at all — a name that looks unique but is not. */
+	if (written <= 0 || (size_t)written >= room) {
+		adv_name[adv_name_len] = '\0';
+		printk("[BLE] address suffix did not fit; advertising as %s\n",
+		       adv_name);
+		return;
+	}
+	adv_name_len += (size_t)written;
+
+	/* Keep the GAP Device Name characteristic in step with the scan
+	 * response. A HiveHub OTA relay connects by address and never reads it,
+	 * but every generic BLE app a beekeeper might debug with does, and a
+	 * connected node calling itself something other than what it advertised
+	 * is exactly the kind of mismatch that costs an afternoon. */
+	int err = bt_set_name(adv_name);
+
+	if (err != 0) {
+		printk("[BLE] setting GAP name failed (%d)\n", err);
+	}
+}
 
 #define FLAG_SHT   (1U << 0)
 #define FLAG_ACCEL (1U << 1)
@@ -176,7 +244,7 @@ static void encode(const struct measurement *m)
 
 /* Start legacy connectable undirected advertising (ADV_IND) carrying the last
  * encoded measurement: the reading stays in the primary packet for HiveHub's
- * passive scan while the "HiveInside" name rides in the scan response for
+ * passive scan while the "HiveInside-XXXX" name rides in the scan response for
  * active setup scans. Only the legacy PDU allows both payloads at once, so
  * never let extended advertising be selected here.
  *
@@ -193,8 +261,7 @@ static int advertising_start(void)
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 	};
 	const struct bt_data scan_response[] = {
-		BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
-			sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+		BT_DATA(BT_DATA_NAME_COMPLETE, adv_name, adv_name_len),
 		BT_DATA(BT_DATA_MANUFACTURER_DATA, identity, sizeof(identity)),
 	};
 	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
@@ -242,8 +309,9 @@ int beacon_init(void)
 		printk("[BLE] init failed (%d)\n", err);
 		return err;
 	}
+	build_adv_name();
 	printk("[BLE] ready; name=%s manufacturer=%s id=0x%04x interval=%u ms\n",
-	       HIVEINSIDE_DEVICE_NAME, HIVEINSIDE_MANUFACTURER_NAME,
+	       adv_name, HIVEINSIDE_MANUFACTURER_NAME,
 	       HIVEINSIDE_COMPANY_ID, BLE_ADV_INTERVAL_MS);
 	bluetooth_ready = true;
 	return 0;
@@ -271,8 +339,7 @@ int beacon_publish(const struct measurement *m)
 			BT_DATA(BT_DATA_MANUFACTURER_DATA, frame, sizeof(frame)),
 		};
 		const struct bt_data scan_response[] = {
-			BT_DATA(BT_DATA_NAME_COMPLETE, HIVEINSIDE_DEVICE_NAME,
-				sizeof(HIVEINSIDE_DEVICE_NAME) - 1U),
+			BT_DATA(BT_DATA_NAME_COMPLETE, adv_name, adv_name_len),
 			BT_DATA(BT_DATA_MANUFACTURER_DATA, identity,
 				sizeof(identity)),
 		};
