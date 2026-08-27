@@ -365,6 +365,14 @@ For every release:
    whose bootloader, signing key, partition layout, or radio/application startup
    is broken.
 
+Steps 1 and 3 are mechanised: `.github/workflows/release.yml` builds both
+variants pristine on a tag, publishes the version-stamped payload together with
+a `manifest.txt` carrying each payload's byte size and CRC-32, and attaches the
+frozen west manifest and both images' Kconfig so the build can be reproduced.
+Steps 2, 4 and 5 still need a person and a board. Note that those published
+images use the **development** signing key — a deployment with its own key has
+to build and publish its own artifacts.
+
 ## Implementation
 
 `firmware-nrf54lm20a/src/ota.c` streams into the board's MCUboot secondary slot,

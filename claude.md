@@ -37,6 +37,8 @@ firmware-over-BLE updates.
 * `west.yml` — west manifest, pinning the upstream Zephyr revision to build
   against.
 * `enclosure/` — 3D-printable enclosure (STL/STEP/F3Z).
+* `tools/flash/` — OpenOCD flashing scripts shipped with the release images
+  (`.github/workflows/release.yml` builds and publishes those images).
 * `website/` — the project page published to GitHub Pages.
 * `docs/` — wiring, VS Code build, flashing, OTA-over-BLE, low-power profile,
   Home Assistant.

@@ -88,6 +88,7 @@ HiveInside/
 │   ├── sysbuild/         MCUboot child-image config for `west --sysbuild`
 │   └── src/              main + sensor + FFT + beacon + OTA modules
 ├── enclosure/            Current 3D-printable enclosure files
+├── tools/flash/          OpenOCD flashing scripts for the prebuilt release images
 ├── docs/                 wiring, building, flashing, OTA, Home Assistant
 └── README.md
 ```
@@ -96,7 +97,16 @@ HiveInside/
 
 ## Quick start (XIAO nRF54LM20A Sense)
 
-Set up a west workspace from this repository, then build and flash:
+**Just want a running node?** Every
+[release](https://github.com/MacNite/HiveInside/releases) ships prebuilt images:
+a `-factory.hex` you flash over USB with the bundled `flash.sh` / `flash.ps1`
+(OpenOCD, no toolchain), and a `.signed.bin` you push to an existing node over
+the air through HiveHub. Pick the `lowpower` variant for a hive and `bringup`
+for the bench. See
+[`docs/flashing.md`](docs/flashing.md#flashing-a-prebuilt-release-image).
+
+To build it yourself, set up a west workspace from this repository, then build
+and flash:
 
 ```bash
 west init -m https://github.com/MacNite/HiveInside hiveinside-workspace
