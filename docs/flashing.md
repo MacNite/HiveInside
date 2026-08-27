@@ -1,5 +1,106 @@
 # Flashing HiveInside
 
+There are two ways to get firmware onto a board:
+
+* **Flash a prebuilt release image** — a download and one command, no Zephyr
+  toolchain. Start below.
+* **Build it yourself** with `west --sysbuild` — the reference path, and the one
+  to use when you are changing the firmware. That is the rest of this document,
+  starting at [Target: XIAO nRF54LM20A Sense](#target-xiao-nrf54lm20a-sense).
+
+---
+
+## Flashing a prebuilt release image
+
+Every [release](https://github.com/MacNite/HiveInside/releases) carries the
+images CI built, in two variants, plus the tools to put them on a board.
+
+### Pick the right file
+
+| File | What it is | Flash it with |
+| --- | --- | --- |
+| `hiveinside-nrf54lm20a-v<version>-<variant>-factory.hex` | MCUboot at `0x0` **plus** the signed application in slot 0 — a complete, bootable device image | SWD over USB (below) |
+| `hiveinside-nrf54lm20a-v<version>-<variant>.signed.bin` | The signed application alone: the **BLE OTA payload** | HiveHub, over the air |
+
+`<variant>` is either **`lowpower`** — the deployment profile of
+[`low-power.md`](low-power.md), no console, for a hive — or **`bringup`**, with
+the console on at 115200 8N1 for bench work. Both advertise identically, so a
+`bringup` image in a sealed hive looks healthy from HiveHub and just drains the
+battery. Check the suffix before flashing.
+
+`<version>` is the firmware version from `src/hive_config.h` — the same numbers
+the node advertises — and is independent of the repository's release tag.
+
+> ⚠️ **Never flash a `.signed.bin` over SWD.** It links at the slot-0 offset
+> behind an MCUboot header, so on its own it leaves nothing at `0x0`: the CPU
+> faults before `main()` and the device is completely silent. Use the
+> `-factory.hex` for SWD and the `.signed.bin` only for OTA.
+
+### Over USB, with the flashing bundle
+
+Download `hiveinside-flash-tools.zip` and the factory hex for your variant from
+the same release, unzip, and run:
+
+```bash
+./flash.sh hiveinside-nrf54lm20a-v0.5.0-lowpower-factory.hex
+```
+
+```powershell
+.\flash.ps1 -Image hiveinside-nrf54lm20a-v0.5.0-lowpower-factory.hex
+```
+
+It needs OpenOCD on `PATH` and nothing else; the bundle carries the board's
+OpenOCD config from the Zephyr revision the images were built against. On Linux
+add the udev rule from the bundle's README so the debugger is usable without
+`sudo`. The scripts run the same OpenOCD sequence `west flash --verify` runs,
+verify the image by reading it back, and — importantly — correct the board's
+RRAM loader first (see
+[the OpenOCD RRAM bug](#known-bug-the-openocd-rram-loader-drops-the-last-partial-write);
+the bundle's README explains the one-line fix).
+
+The equivalent by hand, if you would rather not run a script, is:
+
+```bash
+openocd -f <board-openocd.cfg-with-the-RRAM-fix> \
+  -c init -c "targets nrf54lm20a.cpu" -c "reset init" \
+  -c "nrf54lm20a-load <image>.hex" \
+  -c "reset init" -c "verify_image <image>.hex" \
+  -c "reset run" -c shutdown
+```
+
+### Over the air, for a node that already runs
+
+Upload the `.signed.bin` in HiveHub's firmware form. It reads the target and
+version straight out of the file name, streams the image into the node's
+secondary slot, and MCUboot test-swaps with automatic rollback. Nothing is
+committed until size and CRC-32 verify, so a failed transfer leaves the node on
+its old firmware. See [`ota-over-ble.md`](ota-over-ble.md).
+
+### Check what you downloaded
+
+```bash
+sha256sum -c SHA256SUMS      # shasum -a 256 -c SHA256SUMS on macOS
+```
+
+`manifest.txt` in the release lists each payload's size and CRC-32 (the values
+the OTA `BEGIN` frame carries), the commit and the Zephyr revision behind the
+build, and `west-manifest-frozen.yml` plus `build-info-<variant>.zip` are there
+to reproduce it.
+
+Release images are signed with **MCUboot's development key, which is public** —
+that is image formatting, not proof of origin. A device running these images
+accepts any image signed with the same public key. For a deployment you control,
+provision your own key (see the checklist in
+[`ota-over-ble.md`](ota-over-ble.md#production-release-and-recovery-checklist))
+and build your own images.
+
+### If the board does not come up
+
+The troubleshooting further down this document applies unchanged — start at
+[Device is silent after flashing](#device-is-silent-after-flashing-no-console-no-ble).
+
+---
+
 ## Target: XIAO nRF54LM20A Sense
 
 This firmware boots **through MCUboot** so it can accept firmware-over-BLE
@@ -65,15 +166,18 @@ compile check and nothing more.
 > the classic "builds fine but never boots" symptom. Always build with
 > `--sysbuild` and flash with `west flash`.
 
-The board definition's default runner uses OpenOCD's CMSIS-DAP path, filtered to
-the on-board debugger's fixed VID:PID (`0x2886:0x0068`), so it binds to this
-board's debugger and ignores unrelated CMSIS-DAP dongles. `west flash` uses that
-same on-board debugger.
+The board definition's default runner uses OpenOCD's CMSIS-DAP path. Its
+`support/openocd.cfg` sources the generic `interface/cmsis-dap.cfg` without
+filtering on VID:PID, so with several CMSIS-DAP adapters attached OpenOCD binds
+to whichever it finds first — unplug the others, or select one explicitly with
+an `adapter usb location`/`-i` argument.
 
 Do **not** use `pyocd` on the current silicon: it aborts during APPROTECT
 recovery with `Memory transfer fault @ 0x00ffc31c-0x00ffc31f`. CMSIS-DAP
-(OpenOCD) is the supported path; the board definition also lists `probe-rs` and
-J-Link for contributors who deliberately attach an external probe.
+(OpenOCD) is the supported path. The board's `board.cmake` registers exactly
+three runners — `openocd` (the default), `jlink` and `nrfutil` — so
+`west flash --runner probe-rs` and `--runner pyocd` are not available for this
+board however the probe is attached.
 
 ### Serial console over the same USB cable
 
@@ -131,10 +235,11 @@ probe. A spare XIAO RP2040 works as the SWD probe:
    | GND                 | GND    | GND                      |
 
    Power the target from its own USB (or the probe's 3V3 — not both).
-3. Flash the merged image through the external probe with a matching `west`
-   runner (for example `west flash --runner probe-rs`, with the nRF54LM20A
-   target pack installed). The on-board debugger's OpenOCD path is filtered to
-   its fixed VID:PID and will not bind to the RP2040 (`0x2E8A:0x000C`).
+3. Flash the merged image through the external probe with the OpenOCD runner.
+   The board registers no `probe-rs` or `pyocd` runner, and the CMSIS-DAP
+   interface config does not filter on VID:PID, so unplug the target's own
+   debugger (or keep only one adapter attached) to be sure OpenOCD binds to the
+   RP2040 (`0x2E8A:0x000C`) rather than to the on-board SAMD11.
 
 On Linux, add a udev rule so the probe is accessible without `sudo`
 (`SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"`), then reload rules
@@ -158,9 +263,9 @@ upstream Zephyr revision carrying it, and an nRF Connect SDK workspace needs the
 board added out of tree (see the board-target section below). `west flash`
 programs every sysbuild image over the on-board
 CMSIS-DAP debugger; with an external probe (below) select the matching runner, e.g.
-`west flash --runner jlink`. The board definition also lists pyOCD, probe-rs,
-and J-Link as optional protocols that require a verified compatible probe and
-board revision.
+`west flash --runner jlink`. Those are the only alternatives the board
+registers — `openocd`, `jlink` and `nrfutil` — and `jlink` needs a real J-Link
+probe.
 
 > ⚠️ **Not** the "nRF Connect SDK **Bare Metal**" option (`nrf-bm`, board
 > targets prefixed `bm_`). That is a separate, RTOS-free SDK line built on the

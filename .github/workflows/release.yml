@@ -1,0 +1,289 @@
+# Build and publish the flashable HiveInside images.
+#
+# `build.yml` already builds exactly what a release needs — both configurations,
+# with `west --sysbuild`, against the Zephyr revision pinned in west.yml — and
+# then throws the result away. This workflow runs the same build and keeps the
+# files, so a user with a XIAO and no Zephyr toolchain can flash a device.
+#
+# Triggered by pushing a tag (`v0.2`, …) it uploads the assets to that tag's
+# release; if no release exists yet it creates a **draft** so the notes can
+# still be written by hand. `workflow_dispatch` builds the identical set and
+# leaves it as workflow artifacts, which is the way to rehearse a release
+# without tagging anything.
+#
+# What gets published, per variant (`bringup` = console on, `lowpower` = the
+# deployment profile of docs/low-power.md):
+#
+#   hiveinside-nrf54lm20a-v<version>-<variant>.signed.bin
+#       The BLE OTA payload — the signed application alone, MCUboot header
+#       included. This is the file HiveHub uploads to a node; the dashboard
+#       reads target and version out of the name. Never flash it over SWD.
+#   hiveinside-nrf54lm20a-v<version>-<variant>-factory.hex
+#       MCUboot at 0x0 plus the signed application in slot 0, merged into one
+#       file. This is the SWD factory/recovery image. Upstream Zephyr sysbuild
+#       does not emit NCS's merged.hex (docs/flashing.md), so it is merged here.
+#   manifest.txt / SHA256SUMS
+#       Size and CRC-32 of each OTA payload (the two numbers the OTA BEGIN
+#       frame carries), the Zephyr revision, the frozen west manifest, and the
+#       signing-key caveat.
+#   hiveinside-flash-tools.zip
+#       OpenOCD-based flashing scripts for people without a west workspace,
+#       plus the board's OpenOCD config taken from the same Zephyr revision.
+#
+# The version in the file names comes from src/hive_config.h — the same numbers
+# the node advertises — and is deliberately independent of the repository tag.
+# The build asserts they agree with what the build actually produced, so a
+# forgotten version bump fails the release instead of shipping two different
+# images under one version.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: debug
+            variant: bringup
+            extra: ""
+          - config: lowpower
+            variant: lowpower
+            extra: >-
+              -DEXTRA_CONF_FILE=low-power.conf
+              -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
+    name: build (${{ matrix.variant }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hiveinside
+
+      - uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: hiveinside
+          toolchains: arm-zephyr-eabi
+
+      - name: Read the firmware version
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # The three numbers beacon.c advertises, in MAJOR.MINOR.PATCH order.
+          version=$(sed -nE \
+            's/^#define HIVEINSIDE_FW_VERSION_(MAJOR|MINOR|PATCH)[[:space:]]+([0-9]+).*/\2/p' \
+            firmware-nrf54lm20a/src/hive_config.h | paste -sd.)
+          # Three components or the sed above stopped matching the header.
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          echo "FW_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build ${{ matrix.config }}
+        working-directory: hiveinside
+        env:
+          EXTRA: ${{ matrix.extra }}
+        run: |
+          set -eux
+          west build --pristine=always --sysbuild \
+            -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
+            -d "${{ matrix.config }}" \
+            firmware-nrf54lm20a \
+            ${EXTRA:+-- $EXTRA}
+
+      - name: Collect the release images
+        working-directory: hiveinside
+        env:
+          CONFIG: ${{ matrix.config }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -eux
+          # Merging the two sysbuild images needs intelhex. The second form is
+          # for a runner whose Python is marked externally managed.
+          python3 -m pip install --quiet intelhex \
+            || python3 -m pip install --quiet --break-system-packages intelhex
+
+          out="$CONFIG/firmware-nrf54lm20a/zephyr"
+          stem="hiveinside-nrf54lm20a-v$FW_VERSION-$VARIANT"
+          mkdir -p dist
+
+          # The OTA payload. The build already stamped this name; asserting it
+          # here is what catches a version bump that never happened, and a
+          # config fragment that was silently not applied (the suffix is
+          # derived from CONFIG_SERIAL in the image actually built).
+          cp "$out/$stem.signed.bin" "dist/$stem.signed.bin"
+
+          # The SWD image. Upstream Zephyr records the separately flashable
+          # domains in domains.yaml and leaves merging to `west flash`; a
+          # release consumer has no build tree, so merge the two images that
+          # `west flash` would program into one file. The partitions are
+          # disjoint, so hexmerge's default --overlap=error doubles as a check
+          # that the layout is what we think it is.
+          hexmerge.py -o "dist/$stem-factory.hex" \
+            "$CONFIG/mcuboot/zephyr/zephyr.hex" \
+            "$out/zephyr.signed.hex"
+
+          # Size and CRC-32 of the exact bytes that get uploaded — the two
+          # values the OTA BEGIN frame carries (docs/ota-over-ble.md).
+          python3 - "dist/$stem.signed.bin" > "dist/sizes-$VARIANT.txt" <<'PY'
+          import pathlib, sys, zlib
+          p = pathlib.Path(sys.argv[1])
+          data = p.read_bytes()
+          print(f"{p.name}\t{len(data)}\t0x{zlib.crc32(data):08x}")
+          PY
+
+          # Keep the configuration that produced the images, so a release can
+          # be reproduced and audited later (ota-over-ble.md release checklist,
+          # step 1). The two .config files are also where a signing-key or
+          # MCUboot-mode mismatch between bootloader and application shows up,
+          # which is the first thing to compare when a device rejects slot 0.
+          mkdir -p "dist/build-info-$VARIANT"
+          cp "$out/.config" "dist/build-info-$VARIANT/app.config"
+          cp "$CONFIG/mcuboot/zephyr/.config" "dist/build-info-$VARIANT/mcuboot.config"
+          cp "$CONFIG/domains.yaml" "dist/build-info-$VARIANT/domains.yaml"
+          cp "$out/zephyr.dts" "dist/build-info-$VARIANT/app.dts"
+
+      - name: Collect the flashing tools and the frozen manifest
+        if: matrix.variant == 'bringup'
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # Both are variant-independent, so they are collected once.
+          west manifest --freeze > dist/west-manifest-frozen.yml
+
+          # The board's OpenOCD config, from the same Zephyr revision the
+          # images were built against, so the shipped flashing path matches the
+          # shipped binaries. It is copied unmodified, keeps its Apache-2.0
+          # SPDX header, and is attributed in the bundle's README; the RRAM
+          # write-buffer fix is applied by the flashing script at run time
+          # rather than baked in here (see tools/flash/README.md).
+          zephyr_base=$(west topdir)/zephyr
+          cfg="$zephyr_base/boards/seeed/xiao_nrf54lm20a/support/openocd.cfg"
+          test -f "$cfg"
+          mkdir -p dist/openocd
+          cp "$cfg" dist/openocd/xiao_nrf54lm20a.cfg
+          git -C "$zephyr_base" rev-parse HEAD > dist/openocd/ZEPHYR_REVISION
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.variant }}
+          path: hiveinside/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: package
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hiveinside
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Assemble the release assets
+        run: |
+          set -eux
+          mkdir -p dist
+          cp staging/hiveinside-nrf54lm20a-*.signed.bin dist/
+          cp staging/hiveinside-nrf54lm20a-*-factory.hex dist/
+
+          # The flashing bundle: our scripts plus the board's OpenOCD config.
+          bundle=$(mktemp -d)/hiveinside-flash-tools
+          mkdir -p "$bundle"
+          cp hiveinside/tools/flash/flash.sh hiveinside/tools/flash/flash.ps1 "$bundle/"
+          cp hiveinside/tools/flash/README.md "$bundle/"
+          chmod +x "$bundle/flash.sh"
+          cp -R staging/openocd "$bundle/openocd"
+          (cd "$(dirname "$bundle")" && zip -qr hiveinside-flash-tools.zip hiveinside-flash-tools)
+          cp "$(dirname "$bundle")/hiveinside-flash-tools.zip" dist/
+
+          # The enclosure, so printing it needs no repository clone.
+          (cd hiveinside && zip -qr "$GITHUB_WORKSPACE/dist/hiveinside-enclosure.zip" enclosure)
+
+          # Everything needed to verify, upload and reproduce the images.
+          version=$(ls dist/hiveinside-nrf54lm20a-v*-bringup.signed.bin \
+            | sed -E 's/.*-v([0-9]+\.[0-9]+\.[0-9]+)-bringup.*/\1/')
+          {
+            echo "HiveInside release images"
+            echo
+            echo "firmware version : $version   (from src/hive_config.h; the version the node advertises)"
+            echo "repository tag   : ${GITHUB_REF_NAME}"
+            echo "commit           : ${GITHUB_SHA}"
+            echo "board target     : xiao_nrf54lm20a/nrf54lm20a/cpuapp"
+            echo "zephyr revision  : $(cat staging/openocd/ZEPHYR_REVISION)"
+            echo "built by         : ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "Signing key: MCUboot's RSA-2048 *development* key, which is public."
+            echo "That provides image formatting, not production authenticity — any"
+            echo "image signed with the same public key is accepted by these builds."
+            echo
+            echo "OTA payloads (upload to HiveHub; size and CRC-32 are what the OTA"
+            echo "BEGIN frame carries):"
+            echo
+            printf '%-52s %10s %12s\n' file bytes crc32
+            cat staging/sizes-*.txt | sort | while IFS=$'\t' read -r name size crc; do
+              printf '%-52s %10s %12s\n' "$name" "$size" "$crc"
+            done
+            echo
+            echo "Variants: -bringup has the console on (bench work); -lowpower is the"
+            echo "deployment profile from docs/low-power.md. Flashing the wrong one"
+            echo "into a sealed hive fails silently — it boots and advertises the same."
+            echo
+            echo "The frozen west manifest and the per-variant Kconfig are attached as"
+            echo "build-info; rebuilding from them reproduces these images."
+          } > dist/manifest.txt
+
+          cp staging/west-manifest-frozen.yml dist/
+          for variant in bringup lowpower; do
+            (cd staging && zip -qr "$GITHUB_WORKSPACE/dist/build-info-$variant.zip" "build-info-$variant")
+          done
+
+          # Write the sums outside dist/ first: the file must not end up
+          # hashing itself.
+          (cd dist && sha256sum ./* > ../SHA256SUMS && mv ../SHA256SUMS .)
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Attach the assets to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eux
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$GITHUB_WORKSPACE"/dist/* --clobber
+          else
+            # No release for this tag yet. Create it as a draft rather than
+            # publishing: the notes for this repository are written by hand,
+            # and a draft lets that happen with the assets already in place.
+            gh release create "$TAG" \
+              --draft \
+              --title "$TAG" \
+              --notes "Draft created by the release workflow. Assets are attached; write the notes before publishing." \
+              "$GITHUB_WORKSPACE"/dist/*
+          fi

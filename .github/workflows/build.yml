@@ -103,3 +103,17 @@ jobs:
           # applied — the failure docs/vscode-build.md warns about.
           out="${{ matrix.config }}/firmware-nrf54lm20a/zephyr"
           ls -l "$out"/hiveinside-nrf54lm20a-v*-${{ matrix.variant }}.signed.bin
+
+      # Keep the images around so a change can be tried on hardware before it
+      # is tagged. Releases are built and published by release.yml; these are
+      # the same files without the manifest, checksums and flashing bundle.
+      - name: Keep the images for testers
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ matrix.variant }}
+          path: |
+            hiveinside/${{ matrix.config }}/firmware-nrf54lm20a/zephyr/hiveinside-*.signed.bin
+            hiveinside/${{ matrix.config }}/firmware-nrf54lm20a/zephyr/zephyr.signed.hex
+            hiveinside/${{ matrix.config }}/mcuboot/zephyr/zephyr.hex
+          if-no-files-found: error
+          retention-days: 14

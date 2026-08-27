@@ -94,6 +94,7 @@
       <a class="btn" href="#features">✨ What it does</a>
       <a class="btn ghost" href="#hardware">🔧 Hardware</a>
       <a class="btn ghost" href="#build">⚡ Build &amp; flash</a>
+      <a class="btn ghost" href="https://github.com/MacNite/HiveInside/releases">⬇️ Download firmware</a>
       <a class="btn ghost" href="https://github.com/MacNite/HiveInside">★ Star on GitHub</a>
     </div>
     <div class="note info" style="max-width:72ch">
@@ -269,6 +270,15 @@
     <p class="sub">The firmware is a Zephyr application built with <strong>west and sysbuild</strong> —
        the only supported build path. Everything below runs over the single USB-C cable; no external
        debug probe is needed.</p>
+
+    <div class="note info">📦 <strong>Don't want to build it?</strong> Every
+      <a href="https://github.com/MacNite/HiveInside/releases">release</a> ships prebuilt images: a
+      <code>-factory.hex</code> for a fresh board, flashed over the same USB-C cable with the bundled
+      <code>flash.sh</code> / <code>flash.ps1</code> (OpenOCD only, no toolchain), and a
+      <code>.signed.bin</code> to push to a node that is already running, over the air through HiveHub.
+      Take the <code>lowpower</code> variant for a hive and <code>bringup</code> for the bench —
+      <a href="https://github.com/MacNite/HiveInside/blob/main/docs/flashing.md#flashing-a-prebuilt-release-image">flashing a prebuilt image →</a></div>
+
     <div class="steps">
 
       <div class="step"><div class="n">1</div><div>
@@ -371,7 +381,7 @@ picocom -b 115200 /dev/cu.usbmodemXXXX    # macOS</pre>
     <div class="grid">
       <div class="card"><h3>📻 Firmware &amp; frame</h3><p>The readout format, the full BLE frame layout, the watchdog, and the roadmap.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/firmware-nrf54lm20a/README.md">firmware-nrf54lm20a/README.md →</a></p></div>
       <div class="card"><h3>🔌 Wiring</h3><p>SHT40, battery and the optional external accelerometer.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/wiring.md">docs/wiring.md →</a></p></div>
-      <div class="card"><h3>⚡ Flashing</h3><p>Flashing details, the external-probe alternative, and what to do when a device is silent.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/flashing.md">docs/flashing.md →</a></p></div>
+      <div class="card"><h3>⚡ Flashing</h3><p>Prebuilt release images, flashing details, the external-probe alternative, and what to do when a device is silent.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/flashing.md">docs/flashing.md →</a></p></div>
       <div class="card"><h3>🔋 Low power</h3><p>The code-and-hardware audit, the deployment build profile, and how to measure the result properly.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/low-power.md">docs/low-power.md →</a></p></div>
       <div class="card"><h3>📥 OTA over BLE</h3><p>The streaming relay, the partition layout, and the release artifact naming.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/ota-over-ble.md">docs/ota-over-ble.md →</a></p></div>
       <div class="card"><h3>🧑‍💻 Building in VS Code</h3><p>The nRF Connect extension setup with the <code>debug</code> and <code>lowpower</code> configurations.</p><p><a href="https://github.com/MacNite/HiveInside/blob/main/docs/vscode-build.md">docs/vscode-build.md →</a></p></div>
