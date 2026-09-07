@@ -155,6 +155,22 @@
 #define HIVE_OTA_STALL_TIMEOUT_MS 30000U
 #endif
 
+/* ── BLE throughput spike (issue #71, phase 0e — TEMPORARY) ───────────────
+ *
+ * Compiles src/throughput.c into the image: a GATT service that notifies a
+ * counter pattern as fast as the link allows, so peripheral -> central
+ * notification throughput can be measured before the audio feature commits to
+ * streaming or to buffering a whole clip. Off by default; the
+ * throughput-spike.conf fragment turns it on (see docs/ble-throughput-spike.md)
+ * along with the Kconfig symbols its link-parameter logging needs.
+ *
+ * Deliberately not wired into any deployment path: a build that does not apply
+ * that fragment is byte-identical with or without this file present.
+ */
+#ifndef ENABLE_THROUGHPUT_SPIKE
+#define ENABLE_THROUGHPUT_SPIKE 0
+#endif
+
 /* ── Sensor enables ────────────────────────────────────────────────────── */
 
 #ifndef ENABLE_SHT40
