@@ -34,7 +34,9 @@ target_sources(app PRIVATE
   src/mic.c
   src/battery.c
   src/beacon.c
+  src/link.c
   src/ota.c
+  src/audio.c
   # Temporary measurement module (issue #71 phase 0e). Compiles to nothing
   # unless ENABLE_THROUGHPUT_SPIKE is set — see throughput-spike.conf.
   src/throughput.c
