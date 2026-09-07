@@ -24,7 +24,7 @@
 
 #if ENABLE_THROUGHPUT_SPIKE
 
-#include "ota.h"
+#include "link.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -58,7 +58,6 @@ enum {
  * OTA writes. */
 #define TP_PAYLOAD_MAX 244
 
-static struct bt_conn *tp_conn;
 static uint8_t state;
 static uint32_t bytes_sent, notifs_sent, elapsed_ms;
 static uint16_t payload_len;
@@ -108,7 +107,7 @@ static void fill_status(uint8_t v[TP_STATUS_LEN])
 	sys_put_le32(elapsed_ms, &v[5]);
 	sys_put_le32(notifs_sent, &v[9]);
 	v[13] = (uint8_t)MIN(payload_len, 255U);
-	sys_put_le16(tp_conn ? bt_gatt_get_mtu(tp_conn) : 0, &v[14]);
+	sys_put_le16(link_conn() ? bt_gatt_get_mtu(link_conn()) : 0, &v[14]);
 }
 
 static void publish_status(void)
@@ -168,7 +167,7 @@ static void tp_thread_fn(void *a, void *b, void *c)
 		       (unsigned)duration_s, (unsigned)payload_len,
 		       (unsigned)TP_CREDITS);
 
-		while (state == TP_RUNNING && tp_conn != NULL &&
+		while (state == TP_RUNNING && link_conn() != NULL &&
 		       k_uptime_get() < deadline) {
 			if (k_sem_take(&tp_credits, K_MSEC(500)) != 0) {
 				/* Half a second without a single completion is not
@@ -185,7 +184,7 @@ static void tp_thread_fn(void *a, void *b, void *c)
 				.len = payload_len,
 				.func = sent_cb,
 			};
-			int err = bt_gatt_notify_cb(tp_conn, &params);
+			int err = bt_gatt_notify_cb(link_conn(), &params);
 
 			if (err != 0) {
 				k_sem_give(&tp_credits);
@@ -208,6 +207,7 @@ static void tp_thread_fn(void *a, void *b, void *c)
 
 		elapsed_ms = (uint32_t)(k_uptime_get() - start);
 		state = TP_DONE;
+		link_release(LINK_OWNER_THROUGHPUT);
 
 		/* Integer arithmetic only: this build may or may not have the
 		 * cbprintf float formatter, and a throughput figure does not
@@ -241,7 +241,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			publish_status();
 			return len;
 		}
-		if (!tp_conn) {
+		if (!link_conn()) {
 			state = TP_ERR_NO_LINK;
 			publish_status();
 			return len;
@@ -291,11 +291,9 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		(void)bt_conn_le_phy_update(conn, BT_CONN_LE_PHY_PARAM_2M);
 #endif
 
-		/* ota.c disconnects any central that has not sent BEGIN within
-		 * six seconds. That guard is right for the OTA service and fatal
-		 * for a twenty-second measurement, so stand it down for this
-		 * link. */
-		ota_release_arm_timeout();
+		if (!link_claim(LINK_OWNER_THROUGHPUT)) {
+			state = TP_ERR_NO_LINK; publish_status(); return len;
+		}
 
 		state = TP_RUNNING;
 		publish_status();
@@ -323,100 +321,6 @@ static ssize_t status_read(struct bt_conn *conn, const struct bt_gatt_attr *attr
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, v, sizeof(v));
 }
 
-/* ── Link parameter logging (phase 0b) ─────────────────────────────────────
- *
- * A second set of connection callbacks alongside ota.c's. Zephyr calls every
- * registered set, and these deliberately do NOT touch the beacon: advertising
- * is ota.c's to restart, and calling beacon_disconnected() from two places
- * would schedule the restart work twice.
- */
-static void tp_connected(struct bt_conn *conn, uint8_t conn_err)
-{
-	struct bt_conn_info info;
-
-	if (conn_err) {
-		return;
-	}
-	tp_conn = bt_conn_ref(conn);
-	subscribed = false;
-	state = TP_IDLE;
-
-	if (bt_conn_get_info(conn, &info) == 0 && info.type == BT_CONN_TYPE_LE) {
-		/* interval_us, not the 1.25 ms `interval` field: that one is
-		 * deprecated (it cannot represent the shorter intervals
-		 * CONFIG_BT_SHORTER_CONNECTION_INTERVALS allows) and NCS builds
-		 * deprecation warnings as errors. `latency` and `timeout` are
-		 * unaffected. */
-		printk("[TP] connected: interval=%u us (%u.%02u ms) latency=%u timeout=%u ms\n",
-		       (unsigned)info.le.interval_us,
-		       (unsigned)(info.le.interval_us / 1000U),
-		       (unsigned)((info.le.interval_us % 1000U) / 10U),
-		       (unsigned)info.le.latency,
-		       (unsigned)info.le.timeout * 10U);
-	}
-}
-
-static void tp_disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	ARG_UNUSED(conn);
-	if (state == TP_RUNNING) {
-		state = TP_IDLE;
-	}
-	subscribed = false;
-	if (tp_conn) {
-		bt_conn_unref(tp_conn);
-		tp_conn = NULL;
-	}
-	printk("[TP] disconnected (0x%02x)\n", reason);
-}
-
-static void tp_param_updated(struct bt_conn *conn, uint16_t interval,
-			     uint16_t latency, uint16_t timeout)
-{
-	ARG_UNUSED(conn);
-	printk("[TP] interval now %u units (%u.%02u ms) latency=%u timeout=%u ms\n",
-	       (unsigned)interval, (unsigned)(interval * 5U / 4U),
-	       (unsigned)((interval * 500U / 4U) % 100U),
-	       (unsigned)latency, (unsigned)timeout * 10U);
-}
-
-#if defined(CONFIG_BT_USER_PHY_UPDATE)
-static void tp_phy_updated(struct bt_conn *conn,
-			   struct bt_conn_le_phy_info *param)
-{
-	ARG_UNUSED(conn);
-	/* 1 = 1M, 2 = 2M, 4 = Coded. 2M on both directions is what the 2 Mbit
-	 * symbol rate needs; a run that reports 1M here is answering a different
-	 * question than the one being asked. */
-	printk("[TP] PHY now tx=%u rx=%u\n", (unsigned)param->tx_phy,
-	       (unsigned)param->rx_phy);
-}
-#endif
-
-#if defined(CONFIG_BT_USER_DATA_LEN_UPDATE)
-static void tp_data_len_updated(struct bt_conn *conn,
-				struct bt_conn_le_data_len_info *info)
-{
-	ARG_UNUSED(conn);
-	/* tx_max_len 27 means DLE did not take, whatever the Kconfig says, and
-	 * every notification is being fragmented across link-layer packets. */
-	printk("[TP] data length now tx=%u B/%u us rx=%u B/%u us\n",
-	       (unsigned)info->tx_max_len, (unsigned)info->tx_max_time,
-	       (unsigned)info->rx_max_len, (unsigned)info->rx_max_time);
-}
-#endif
-
-BT_CONN_CB_DEFINE(tp_conn_callbacks) = {
-	.connected = tp_connected,
-	.disconnected = tp_disconnected,
-	.le_param_updated = tp_param_updated,
-#if defined(CONFIG_BT_USER_PHY_UPDATE)
-	.le_phy_updated = tp_phy_updated,
-#endif
-#if defined(CONFIG_BT_USER_DATA_LEN_UPDATE)
-	.le_data_len_updated = tp_data_len_updated,
-#endif
-};
 
 /* A banner rather than an init call, so main.c needs no #if of its own. It also
  * answers the first question any confusing result raises: is the board actually

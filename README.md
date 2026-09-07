@@ -63,6 +63,8 @@ value means the same thing across the ecosystem.
 - **Ultra-low power** — the nRF54 idles with only the ~1 s advertiser
   running (a few µA); no deep-sleep rendezvous machinery required. The sensor
   rail (IMU + microphone) is switched off between the five-minute measurements.
+- **Authenticated live audio** — on request, streams 16 kHz PCM16 over BLE with a 60-second privacy cap and end-to-end CRC.
+  See [`docs/audio-over-ble.md`](docs/audio-over-ble.md).
 - **Firmware-over-BLE (OTA)** — implemented: MCUboot dual-slot with a small
   GATT service that streams the signed image into the secondary slot, verifies
   size + CRC-32, and test-swaps with automatic rollback. The device therefore
@@ -125,6 +127,7 @@ See [`docs/vscode-build.md`](docs/vscode-build.md) to build it from VS Code or
 VSCodium, [`docs/flashing.md`](docs/flashing.md) for flashing details and
 troubleshooting, and [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md)
 for the readout format, BLE frame layout, and roadmap.
+For the authenticated live PCM protocol, see [`docs/audio-over-ble.md`](docs/audio-over-ble.md).
 For battery deployment, see the audited [`low-power build profile`](docs/low-power.md),
 including measurement guidance and upstream references.
 
