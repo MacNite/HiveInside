@@ -342,10 +342,15 @@ static void tp_connected(struct bt_conn *conn, uint8_t conn_err)
 	state = TP_IDLE;
 
 	if (bt_conn_get_info(conn, &info) == 0 && info.type == BT_CONN_TYPE_LE) {
-		printk("[TP] connected: interval=%u units (%u.%02u ms) latency=%u timeout=%u ms\n",
-		       (unsigned)info.le.interval,
-		       (unsigned)(info.le.interval * 5U / 4U),
-		       (unsigned)((info.le.interval * 500U / 4U) % 100U),
+		/* interval_us, not the 1.25 ms `interval` field: that one is
+		 * deprecated (it cannot represent the shorter intervals
+		 * CONFIG_BT_SHORTER_CONNECTION_INTERVALS allows) and NCS builds
+		 * deprecation warnings as errors. `latency` and `timeout` are
+		 * unaffected. */
+		printk("[TP] connected: interval=%u us (%u.%02u ms) latency=%u timeout=%u ms\n",
+		       (unsigned)info.le.interval_us,
+		       (unsigned)(info.le.interval_us / 1000U),
+		       (unsigned)((info.le.interval_us % 1000U) / 10U),
 		       (unsigned)info.le.latency,
 		       (unsigned)info.le.timeout * 10U);
 	}
