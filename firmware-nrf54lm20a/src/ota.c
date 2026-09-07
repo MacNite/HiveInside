@@ -52,6 +52,12 @@ static void record_errno(int rc)
 }
 
 static void arm_timeout_handler(struct k_work *work);
+static void reboot_handler(struct k_work *work);
+static void stall_timeout_handler(struct k_work *work);
+K_WORK_DELAYABLE_DEFINE(arm_timeout_work, arm_timeout_handler);
+K_WORK_DELAYABLE_DEFINE(reboot_work, reboot_handler);
+K_WORK_DELAYABLE_DEFINE(stall_timeout_work, stall_timeout_handler);
+
 #if ENABLE_THROUGHPUT_SPIKE
 void ota_release_arm_timeout(void)
 {
@@ -59,12 +65,6 @@ void ota_release_arm_timeout(void)
 	printk("[OTA] arm timeout released for a throughput measurement\n");
 }
 #endif
-
-static void reboot_handler(struct k_work *work);
-static void stall_timeout_handler(struct k_work *work);
-K_WORK_DELAYABLE_DEFINE(arm_timeout_work, arm_timeout_handler);
-K_WORK_DELAYABLE_DEFINE(reboot_work, reboot_handler);
-K_WORK_DELAYABLE_DEFINE(stall_timeout_work, stall_timeout_handler);
 
 static ssize_t ctrl_write(struct bt_conn *, const struct bt_gatt_attr *,
 			  const void *, uint16_t, uint16_t, uint8_t);
