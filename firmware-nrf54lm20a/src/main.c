@@ -186,6 +186,9 @@ int main(void)
 	 * than reset-looping, and MCUboot's own rollback deadline below is the
 	 * safety net for an image that cannot get this far. */
 	hive_watchdog_init();
+	/* power_init() owns the boot-time rail reference; normal users take their
+	 * own references below. */
+	(void)power_sensor_rail_disable();
 	confirmation_pending = !boot_is_img_confirmed();
 	/* Do not confirm a test image merely because main() was reached. Wait until
 	 * one complete sensor cycle has run and Bluetooth has successfully published
@@ -214,6 +217,9 @@ int main(void)
 			k_msleep(100);
 			continue;
 		}
+		if (!link_measurement_begin()) {
+			continue;
+		}
 		struct measurement m = { 0 };
 
 		/* LDO1 is normally off between cycles. Wake the IMU and microphone
@@ -224,6 +230,7 @@ int main(void)
 		accel_read(&m);
 		mic_read(&m);
 		(void)power_sensor_rail_disable();
+		link_measurement_end();
 		battery_read(&m);
 
 		print_readout(&m);

@@ -16,4 +16,7 @@ bool link_claim(enum link_owner owner);
 void link_release(enum link_owner owner);
 bool link_is_owner(enum link_owner owner);
 bool link_is_busy(void);
-
+/* Hold around the complete powered sensor cycle.  This waits in watchdog-sized
+ * slices, while link_claim() remains non-blocking for GATT callers. */
+bool link_measurement_begin(void);
+void link_measurement_end(void);
