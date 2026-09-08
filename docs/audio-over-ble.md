@@ -1,5 +1,9 @@
 # Audio over BLE
 
+*Firmware **0.6.2** or later. 0.6.0/0.6.1 stream the protocol below correctly but
+capture only the first few tens of milliseconds of real sound — see [One session
+at a time](#one-session-at-a-time).*
+
 HiveInside exposes an authenticated, on-request microphone stream to HiveHub:
 
 ```
@@ -118,10 +122,52 @@ The node compares the tag without early exit. A failed attempt rotates the
 nonce, so reread STATUS before retrying. The nonce also rotates on connection
 and after every completed session.
 
+## One session at a time
+
+The node has **one** PDM controller and **one** switchable sensor rail (LDO1,
+plus the P1.12 gate upstream of it), and two things want them: the five-minute
+measurement cycle and an audio session. Nothing may run both at once.
+
+Until 0.6.2 that was enforced only by a `link_is_busy()` check at the top of the
+measurement loop, which is a decision, not a lock. A cycle that had already
+passed that check went on to read the IMU and microphone and then call
+`power_sensor_rail_disable()` — underneath a session that had started in the
+meantime. The rail went away with the audio still streaming, and because the
+"enabled" flag was a plain boolean, the session's own `power_sensor_rail_enable()`
+had returned success without doing anything. The result was a full-length
+recording of which only the first ~50 ms carried signal; the rest was the ±4 LSB
+of an unpowered microphone. The transport reported it as perfectly clean,
+because it was: every byte the node sent arrived.
+
+0.6.2 replaces the check with two mechanisms:
+
+* **A session gate** (`link_measurement_begin()` / `link_measurement_end()`, a
+  binary semaphore in `link.c`). The measurement cycle holds it from before the
+  rail is powered until after it is dropped, so `link_claim()` — and with it
+  every START — reports **busy `12`** rather than cutting in. GATT callbacks take
+  it with `K_NO_WAIT` and never block on a capture; the main loop waits on it and
+  feeds the watchdog while it does, because a session can last a minute.
+* **A reference-counted sensor rail.** `power_sensor_rail_enable()` /
+  `_disable()` now count users under a mutex, so no holder can switch the rail
+  out from under another. `power_init()` owns the boot-time reference and
+  `main()` drops it once, which is why the counter starts balanced.
+
+Session setup also moved out of the GATT write callback into the capture thread:
+`ctrl_write()` now answers **ARMED**, and the thread powers the rail, waits for
+it to settle and starts PDM before publishing **STREAMING**. A client that waits
+for STREAMING is therefore waiting for a microphone that is genuinely running.
+
+The visible symptom of the old bug is worth knowing, because it does not look
+like a bug in the audio path at all: length, checksum and dropped-byte counters
+all come back clean, and only listening reveals that the hive went silent a
+twentieth of a second in.
+
 ## Bounded states and privacy
 
 The microphone is off unless an authenticated START owns the exclusive link.
-OTA and audio cannot overlap, and periodic sensing pauses for any connection.
+OTA and audio cannot overlap, and periodic sensing is held off for the whole of
+a session by the gate above (and, conversely, a session cannot start while a
+measurement cycle is in flight).
 A connection that claims no service is disconnected after 10 seconds. Capture
 ends at the requested duration, STOP, disconnect, or the absolute 60-second
 cap. Five seconds without a notification completion is a stalled session. Each
@@ -142,6 +188,13 @@ secured by the client.
   per notification while preserving sample boundaries.
 * **Holes or CRC mismatch:** inspect sequence numbers, DATA flag bit 1, final
   `dropped_bytes`, and CRC. Nonzero drops mean the recording is not clean.
+* **Error 12 (busy):** a measurement cycle holds the session gate. Cycles are
+  short; retry. A `12` that never clears means something claimed the link and
+  did not release it — reconnecting rearms the 10-second window.
+* **Audio that starts and then goes silent:** the node is running 0.6.0 or
+  0.6.1. Update to 0.6.2 — see [One session at a time](#one-session-at-a-time).
+  The counters cannot show this: the bytes that arrived are exactly the bytes
+  that were sent, they just contain no sound.
 * **Error 15:** verify the central negotiated notifications, 15 ms interval,
   251-byte data length and 2M PHY and continues acknowledging controller TX.
 * **Disconnect near startup:** complete STATUS/nonce/START within the 10-second

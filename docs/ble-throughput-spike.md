@@ -1,8 +1,22 @@
 # BLE notification throughput — measurement spike
 
-**Temporary.** Everything described here exists to answer one question for
-[HiveInside issue #71](https://github.com/MacNite/HiveInside/issues/71) (record
-an audio sample on request) and should be deleted once it is answered.
+**Temporary — and now answered.** Everything described here exists to answer one
+question for [HiveInside issue #71](https://github.com/MacNite/HiveInside/issues/71)
+(record an audio sample on request).
+
+> ## The answer: 137 kB/s
+>
+> Measured node → XIAO ESP32-C6, 15 ms connection interval, 2M PHY, 251-byte
+> PDUs. That is over four times the 32 kB/s a 16 kHz PCM16 microphone produces,
+> and roughly a hundred times the OTA relay's ~1.4 kB/s — so the audio feature
+> ships **raw PCM16, streamed**, with no codec and no whole-clip buffering. See
+> [`audio-over-ble.md`](audio-over-ble.md).
+>
+> The thresholds table below was written before the run and is left as it was;
+> the result cleared its top row by a factor of seventeen. Nothing here needs to
+> be re-run, and the spike is now safe to delete — see [Removing it](#removing-it).
+
+The rest of this page is kept as the record of how the number was obtained.
 
 ## The question
 
@@ -183,9 +197,13 @@ before blaming the design.
 
 ## Removing it
 
-When the question is answered, delete `src/throughput.c/.h`,
+The question is answered, so this is now a live to-do rather than a
+someday-note: delete `src/throughput.c/.h`,
 `throughput-spike.conf`, `tools/throughput/`, this document, the
 `ENABLE_THROUGHPUT_SPIKE` block in `src/hive_config.h`, the `src/throughput.c`
 line in `CMakeLists.txt`, the `ota_release_arm_timeout()` pair in
-`src/ota.c`/`src/ota.h`, and HiveHub's `tools/ble-throughput/`. Record the
-measured numbers in issue #71 first — that is the whole point of the exercise.
+`src/ota.c`/`src/ota.h`, and HiveHub's `tools/ble-throughput/`.
+
+Nothing is compiled into a normal build in the meantime — the spike needs
+`throughput-spike.conf` on the build command line — so leaving it in place is
+harmless, just untidy.

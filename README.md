@@ -63,7 +63,11 @@ value means the same thing across the ecosystem.
 - **Ultra-low power** — the nRF54 idles with only the ~1 s advertiser
   running (a few µA); no deep-sleep rendezvous machinery required. The sensor
   rail (IMU + microphone) is switched off between the five-minute measurements.
-- **Authenticated live audio** — on request, streams 16 kHz PCM16 over BLE with a 60-second privacy cap and end-to-end CRC.
+- **Authenticated on-request audio** (0.6.0+) — HiveHub can ask the node to
+  record from inside the hive; it streams raw 16 kHz PCM16 over BLE with a
+  60-second privacy cap, an HMAC-authenticated START and an end-to-end CRC. The
+  microphone stays off until an authenticated request owns the link, and a
+  session can never overlap a measurement cycle or an OTA.
   See [`docs/audio-over-ble.md`](docs/audio-over-ble.md).
 - **Firmware-over-BLE (OTA)** — implemented: MCUboot dual-slot with a small
   GATT service that streams the signed image into the secondary slot, verifies
@@ -127,7 +131,7 @@ See [`docs/vscode-build.md`](docs/vscode-build.md) to build it from VS Code or
 VSCodium, [`docs/flashing.md`](docs/flashing.md) for flashing details and
 troubleshooting, and [`firmware-nrf54lm20a/README.md`](firmware-nrf54lm20a/README.md)
 for the readout format, BLE frame layout, and roadmap.
-For the authenticated live PCM protocol, see [`docs/audio-over-ble.md`](docs/audio-over-ble.md).
+For the authenticated on-request PCM protocol, see [`docs/audio-over-ble.md`](docs/audio-over-ble.md).
 For battery deployment, see the audited [`low-power build profile`](docs/low-power.md),
 including measurement guidance and upstream references.
 
