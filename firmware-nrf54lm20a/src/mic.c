@@ -132,9 +132,8 @@ void mic_read(struct measurement *m)
 {
 	m->mic_ok = false;
 
-	/* link_is_busy() keeps the periodic sensor path out while audio owns the
-	 * single PDM controller, so a second lock here would only obscure that
-	 * system-level ownership rule. */
+	/* link's session gate is held for the complete measurement cycle, keeping
+	 * this one-shot capture exclusive with audio's use of the PDM controller. */
 	int err = mic_stream_start();
 	if (err != 0) {
 		printk("[MIC] start failed (%d)\n", err);

@@ -205,6 +205,16 @@ static void capture_thread_fn(void *a, void *b, void *c)
 	ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
 	for (;;) {
 		k_sem_take(&audio_capture_start, K_FOREVER);
+		/* link_claim() transferred the session gate to this thread.  Keep
+		 * regulator settling and PDM setup out of the GATT write callback. */
+		if (power_sensor_rail_enable() != 0 || mic_stream_start() != 0) {
+			(void)power_sensor_rail_disable();
+			set_state(AUDIO_ARMED, AUDIO_ERR_MIC);
+			link_release(LINK_OWNER_AUDIO);
+			continue;
+		}
+		set_state(AUDIO_STREAMING, 0);
+		k_sem_give(&audio_tx_start);
 		while (!atomic_get(&stopping) && link_conn() != NULL &&
 		       k_uptime_get() < deadline_ms) {
 			void *block; uint32_t size;
@@ -336,18 +346,14 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	ring_head = ring_tail = ring_count = ring_offset = 0;
 	k_sem_reset(&audio_credits);
 	for (int i = 0; i < AUDIO_CREDITS; i++) k_sem_give(&audio_credits);
-	if (power_sensor_rail_enable() != 0 || mic_stream_start() != 0) {
-		(void)power_sensor_rail_disable(); link_release(LINK_OWNER_AUDIO);
-		set_state(AUDIO_ARMED, AUDIO_ERR_MIC); return len;
-	}
 	struct bt_le_conn_param cp = { .interval_min = HIVE_AUDIO_CONN_INTERVAL_UNITS,
 		.interval_max = HIVE_AUDIO_CONN_INTERVAL_UNITS, .latency = 0,
 		.timeout = 200 };
 	(void)bt_conn_le_param_update(conn, &cp);
 	(void)bt_conn_le_data_len_update(conn, BT_LE_DATA_LEN_PARAM_MAX);
 	(void)bt_conn_le_phy_update(conn, BT_CONN_LE_PHY_PARAM_2M);
-	set_state(AUDIO_STREAMING, 0);
-	k_sem_give(&audio_capture_start); k_sem_give(&audio_tx_start);
+	set_state(AUDIO_ARMED, 0);
+	k_sem_give(&audio_capture_start);
 	return len;
 }
 

@@ -6,6 +6,7 @@
 #include "beacon.h"
 #include "hive_config.h"
 #include "ota.h"
+#include "watchdog.h"
 
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/kernel.h>
@@ -15,6 +16,7 @@
 static struct bt_conn *active_conn;
 static enum link_owner owner;
 static struct k_spinlock state_lock;
+K_SEM_DEFINE(session_gate, 1, 1);
 
 static void arm_timeout_handler(struct k_work *work);
 K_WORK_DELAYABLE_DEFINE(arm_timeout_work, arm_timeout_handler);
@@ -27,6 +29,12 @@ struct bt_conn *link_conn(void)
 bool link_claim(enum link_owner requested)
 {
 	bool claimed = false;
+
+	/* GATT callbacks must never wait for a sensor capture.  Taking the gate
+	 * without waiting makes START/BEGIN report busy while a cycle is in flight. */
+	if (k_sem_take(&session_gate, K_NO_WAIT) != 0) {
+		return false;
+	}
 	k_spinlock_key_t key = k_spin_lock(&state_lock);
 
 	if (active_conn != NULL && owner == LINK_OWNER_NONE &&
@@ -35,6 +43,9 @@ bool link_claim(enum link_owner requested)
 		claimed = true;
 	}
 	k_spin_unlock(&state_lock, key);
+	if (!claimed) {
+		k_sem_give(&session_gate);
+	}
 	if (claimed) {
 		(void)k_work_cancel_delayable(&arm_timeout_work);
 	}
@@ -44,12 +55,18 @@ bool link_claim(enum link_owner requested)
 void link_release(enum link_owner released)
 {
 	bool arm = false;
+	bool released_gate = false;
 	k_spinlock_key_t key = k_spin_lock(&state_lock);
 	if (owner == released) {
 		owner = LINK_OWNER_NONE;
 		arm = active_conn != NULL;
+		released_gate = true;
 	}
 	k_spin_unlock(&state_lock, key);
+	/* Only the successful owner transition above owns this semaphore. */
+	if (released_gate) {
+		k_sem_give(&session_gate);
+	}
 	/* Releasing a completed service does not make an otherwise idle
 	 * connection safe to retain forever. Give the central a fresh arm window
 	 * in which to begin another bounded session. */
@@ -57,6 +74,28 @@ void link_release(enum link_owner released)
 		(void)k_work_reschedule(&arm_timeout_work,
 					K_MSEC(HIVE_LINK_ARM_TIMEOUT_MS));
 	}
+}
+
+bool link_measurement_begin(void)
+{
+	/* A session can last minutes, so keep the watchdog alive rather than
+	 * blocking the main thread indefinitely. */
+	while (k_sem_take(&session_gate,
+			  K_MSEC(HIVE_WDT_FEED_INTERVAL_MS)) != 0) {
+		hive_watchdog_feed();
+	}
+
+	/* A connection may have arrived while main was waiting for the gate. */
+	if (link_is_busy()) {
+		k_sem_give(&session_gate);
+		return false;
+	}
+	return true;
+}
+
+void link_measurement_end(void)
+{
+	k_sem_give(&session_gate);
 }
 
 bool link_is_owner(enum link_owner queried)
@@ -110,11 +149,22 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
+	bool release_gate = false;
+	k_spinlock_key_t key;
+
 	ARG_UNUSED(conn);
 	(void)k_work_cancel_delayable(&arm_timeout_work);
 	ota_link_disconnected();
 	audio_link_disconnected();
-	owner = LINK_OWNER_NONE;
+	key = k_spin_lock(&state_lock);
+	if (owner != LINK_OWNER_NONE) {
+		owner = LINK_OWNER_NONE;
+		release_gate = true;
+	}
+	k_spin_unlock(&state_lock, key);
+	if (release_gate) {
+		k_sem_give(&session_gate);
+	}
 	if (active_conn != NULL) {
 		bt_conn_unref(active_conn);
 		active_conn = NULL;
