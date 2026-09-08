@@ -62,9 +62,50 @@ Errors are bad parameters `10`, authentication `11`, busy `12`, microphone
 
 ## Authentication and client sequence
 
-Provision the same random 32-byte key on node and HiveHub. Copy
-`src/audio_secret.example.h` to the gitignored `src/audio_secret.h` and replace
-the zeros. A missing or all-zero key fails closed.
+### Provisioning the key
+
+The node and HiveHub share one random 32-byte key. They want it in different
+notations — a C array here, a hex string on the hub — so generate it once and
+print both forms rather than converting by hand:
+
+```bash
+KEY=$(openssl rand -hex 32)
+echo "HiveHub  secrets.h:  #define HIVEINSIDE_AUDIO_PSK_HEX \"$KEY\""
+echo "HiveInside audio_secret.h:"
+echo "$KEY" | sed 's/../0x&, /g' | fold -sw 48 | sed 's/^/\t/;s/ $//'
+```
+
+Copy `src/audio_secret.example.h` to `src/audio_secret.h` (gitignored) and paste
+the array rows in place of the zeros:
+
+```c
+#pragma once
+#include <stdint.h>
+static const uint8_t hive_audio_psk[32] = {
+	0x40, 0xd8, 0x13, 0xad, 0x97, 0x4c, 0x15, 0x06,
+	0x27, 0x03, 0xa0, 0x4e, 0x1f, 0xa3, 0x67, 0x25,
+	0xf7, 0x09, 0x33, 0x30, 0xa8, 0xd3, 0xd1, 0x01,
+	0x81, 0xfc, 0xdf, 0xe5, 0x59, 0x19, 0x42, 0x6b,
+};
+```
+
+The hub takes the same key as the 64-character hex line in its
+`firmware/include/secrets.h`; HiveHub's `docs/audio-recording.md` covers that
+side, including the fact that its `FORCE_RESEED` flag is **not** involved — that
+only re-seeds a claim code into NVS, while the audio key is compiled in and read
+afresh at every session.
+
+A missing or all-zero key fails closed: every START is refused with
+authentication error `11` and, on a console build, a line saying the key is
+absent. That is deliberate. The alternative is an in-hive microphone any BLE
+device in range can switch on.
+
+Flash both sides together. The key is checked per session, so in between the two
+flashes audio fails authentication while the beacon and its measurements carry on
+exactly as before — which is what makes a key mismatch look like a radio problem
+rather than a configuration one.
+
+### Client sequence
 
 1. Connect, subscribe to DATA (and optionally STATUS), then read STATUS.
 2. Take its fresh eight-byte nonce.
@@ -92,8 +133,10 @@ secured by the client.
 ## Troubleshooting
 
 * **Error 14:** subscribe to DATA before START; enabling STATUS alone is not enough.
-* **Error 11:** provision a nonzero key, reread the rotated nonce, and ensure the
-  signed gain byte and little-endian duration are included exactly once.
+* **Error 11:** provision a nonzero key on BOTH sides (see [Provisioning the
+  key](#provisioning-the-key) — the commonest cause is flashing one device and
+  not the other), reread the rotated nonce, and ensure the signed gain byte and
+  little-endian duration are included exactly once.
 * **Error 16:** request format 0; ADPCM is only a reserved wire value.
 * **Short packets:** negotiate ATT MTU 247; smaller MTUs are valid and reduce PCM
   per notification while preserving sample boundaries.
