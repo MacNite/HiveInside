@@ -42,8 +42,8 @@
  * stamped artifact name disagree with the bytes on the air. Bump it here.
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
-#define HIVEINSIDE_FW_VERSION_MINOR 5
-#define HIVEINSIDE_FW_VERSION_PATCH 0
+#define HIVEINSIDE_FW_VERSION_MINOR 6
+#define HIVEINSIDE_FW_VERSION_PATCH 2
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
 #define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
@@ -136,6 +136,36 @@
 #define HIVE_WDT_FEED_INTERVAL_MS 20000U
 #endif
 
+/* ── Connected sessions and authenticated audio ───────────────────────── */
+
+/* Audio ships enabled, but fails closed unless a separately provisioned key is
+ * present. Sixty seconds bounds privacy exposure and battery drain even for an
+ * open-ended listening request. */
+#ifndef ENABLE_AUDIO
+#define ENABLE_AUDIO 1
+#endif
+#ifndef HIVE_AUDIO_MAX_SECONDS
+#define HIVE_AUDIO_MAX_SECONDS 60U
+#endif
+/* One second of PCM slack absorbs ordinary notification jitter without the
+ * hundreds of KiB that buffering a whole clip would consume. */
+#ifndef HIVE_AUDIO_RING_BYTES
+#define HIVE_AUDIO_RING_BYTES 32768U
+#endif
+#ifndef HIVE_AUDIO_STALL_TIMEOUT_MS
+#define HIVE_AUDIO_STALL_TIMEOUT_MS 5000U
+#endif
+/* BLE units are 1.25 ms; measurement showed that explicitly requesting 15 ms
+ * avoids losing roughly two thirds of notification throughput. */
+#ifndef HIVE_AUDIO_CONN_INTERVAL_UNITS
+#define HIVE_AUDIO_CONN_INTERVAL_UNITS 12U
+#endif
+/* Audio needs time to read its nonce before START, but an unclaimed connection
+ * still removes the node from advertising and therefore remains bounded. */
+#ifndef HIVE_LINK_ARM_TIMEOUT_MS
+#define HIVE_LINK_ARM_TIMEOUT_MS 10000U
+#endif
+
 /* ── OTA stall timeout ─────────────────────────────────────────────────────
  *
  * How long a transfer may go without a single DATA write before the node
@@ -153,6 +183,22 @@
  */
 #ifndef HIVE_OTA_STALL_TIMEOUT_MS
 #define HIVE_OTA_STALL_TIMEOUT_MS 30000U
+#endif
+
+/* ── BLE throughput spike (issue #71, phase 0e — TEMPORARY) ───────────────
+ *
+ * Compiles src/throughput.c into the image: a GATT service that notifies a
+ * counter pattern as fast as the link allows, so peripheral -> central
+ * notification throughput can be measured before the audio feature commits to
+ * streaming or to buffering a whole clip. Off by default; the
+ * throughput-spike.conf fragment turns it on (see docs/ble-throughput-spike.md)
+ * along with the Kconfig symbols its link-parameter logging needs.
+ *
+ * Deliberately not wired into any deployment path: a build that does not apply
+ * that fragment is byte-identical with or without this file present.
+ */
+#ifndef ENABLE_THROUGHPUT_SPIKE
+#define ENABLE_THROUGHPUT_SPIKE 0
 #endif
 
 /* ── Sensor enables ────────────────────────────────────────────────────── */
@@ -224,6 +270,10 @@
 #ifndef MIC_WARMUP_BLOCKS
 #define MIC_WARMUP_BLOCKS 2
 #endif
+
+#include <zephyr/sys/util.h>
+BUILD_ASSERT(HIVE_AUDIO_RING_BYTES >= MIC_SAMPLE_RATE,
+	     "audio ring must hold at least 0.5 seconds of PCM16");
 
 /* Acoustic FFT bands (Hz), identical to HiveScale/HiveHub. */
 #define MIC_BAND_SUBBASS_LO 50   /*   50–150 Hz structural / low rumble */

@@ -1,13 +1,12 @@
 /* MCUboot firmware-over-BLE target. ATT responses are returned only after each
  * flash write completes, providing the relay's stream flow control. */
 #include "ota.h"
-#include "beacon.h"
+#include "link.h"
 #include "hive_config.h"
 
 #include <stdint.h>
 
 #include <zephyr/bluetooth/att.h>
-#include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/dfu/flash_img.h>
@@ -20,7 +19,6 @@
 #include <zephyr/sys/reboot.h>
 #include <zephyr/sys/util.h>
 
-#define OTA_ARM_TIMEOUT K_SECONDS(6)
 #define OTA_STALL_TIMEOUT K_MSEC(HIVE_OTA_STALL_TIMEOUT_MS)
 #define OTA_REBOOT_DELAY K_MSEC(1500)
 #define OTA_SUPERVISION_TIMEOUT 200U /* 2 seconds, units of 10 ms */
@@ -33,7 +31,6 @@ enum {
 };
 
 static struct flash_img_context flash_ctx;
-static struct bt_conn *active_conn;
 static uint32_t expected_size, expected_crc, received, running_crc;
 static uint8_t state, error;
 /* Errno of the last failed flash operation, reported as the seventh STATUS
@@ -51,12 +48,11 @@ static void record_errno(int rc)
 	op_errno = (int8_t)CLAMP(rc, INT8_MIN, INT8_MAX);
 }
 
-static void arm_timeout_handler(struct k_work *work);
 static void reboot_handler(struct k_work *work);
 static void stall_timeout_handler(struct k_work *work);
-K_WORK_DELAYABLE_DEFINE(arm_timeout_work, arm_timeout_handler);
 K_WORK_DELAYABLE_DEFINE(reboot_work, reboot_handler);
 K_WORK_DELAYABLE_DEFINE(stall_timeout_work, stall_timeout_handler);
+
 
 static ssize_t ctrl_write(struct bt_conn *, const struct bt_gatt_attr *,
 			  const void *, uint16_t, uint16_t, uint8_t);
@@ -153,11 +149,13 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			record_errno(rc);
 			fail(OTA_ERR_BEGIN); return len;
 		}
+		if (!link_claim(LINK_OWNER_OTA)) {
+			fail(OTA_ERR_BEGIN); return len;
+		}
 		received = 0;
 		/* crc32_ieee_update uses zlib's pre/post complement internally. */
 		running_crc = 0;
 		state = OTA_RECEIVING; error = 0;
-		(void)k_work_cancel_delayable(&arm_timeout_work);
 		/* The arm timeout is done once BEGIN arrives, so from here the stall
 		 * timeout is the only thing bounding the session. */
 		(void)k_work_reschedule(&stall_timeout_work, OTA_STALL_TIMEOUT);
@@ -195,6 +193,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		(void)k_work_cancel_delayable(&stall_timeout_work);
 		expected_size = expected_crc = received = running_crc = 0;
 		set_state(OTA_IDLE);
+		link_release(LINK_OWNER_OTA);
 		return len;
 	default:
 		fail(OTA_ERR_SEQ); return len;
@@ -236,15 +235,6 @@ static ssize_t status_read(struct bt_conn *conn, const struct bt_gatt_attr *attr
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, value, sizeof(value));
 }
 
-static void arm_timeout_handler(struct k_work *work)
-{
-	ARG_UNUSED(work);
-	if (active_conn && state != OTA_RECEIVING && state != OTA_DONE) {
-		printk("[OTA] connection not armed; disconnecting\n");
-		(void)bt_conn_disconnect(active_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-	}
-}
-
 static void stall_timeout_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
@@ -256,10 +246,10 @@ static void stall_timeout_handler(struct k_work *work)
 	/* Publish the error before dropping the link so a central that is merely
 	 * slow, rather than gone, can still read why its session ended. Leaving
 	 * OTA_RECEIVING is what releases the sensor loop; the disconnect then
-	 * clears active_conn and restarts advertising. */
+	 * releases shared link ownership and restarts advertising. */
 	fail(OTA_ERR_SEQ);
-	if (active_conn) {
-		(void)bt_conn_disconnect(active_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	if (link_conn()) {
+		(void)bt_conn_disconnect(link_conn(), BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 	}
 }
 
@@ -270,31 +260,21 @@ static void reboot_handler(struct k_work *work)
 	sys_reboot(SYS_REBOOT_COLD);
 }
 
-static void connected(struct bt_conn *conn, uint8_t conn_err)
+void ota_link_connected(void)
 {
-	struct bt_le_conn_param param = { .interval_min = 24, .interval_max = 40,
-		.latency = 0, .timeout = OTA_SUPERVISION_TIMEOUT };
-	if (conn_err) return;
-	beacon_connected();
-	active_conn = bt_conn_ref(conn);
-	(void)bt_conn_le_param_update(conn, &param);
-	(void)k_work_reschedule(&arm_timeout_work, OTA_ARM_TIMEOUT);
-	printk("[OTA] central connected; waiting for BEGIN\n");
+	state = OTA_IDLE;
+	error = 0;
+	op_errno = 0;
 }
 
-static void disconnected(struct bt_conn *conn, uint8_t reason)
+void ota_link_disconnected(void)
 {
-	ARG_UNUSED(conn);
-	(void)k_work_cancel_delayable(&arm_timeout_work);
 	(void)k_work_cancel_delayable(&stall_timeout_work);
-	if (state == OTA_RECEIVING) { state = error = OTA_ERR_SEQ; }
-	if (active_conn) { bt_conn_unref(active_conn); active_conn = NULL; }
-	printk("[OTA] central disconnected (0x%02x)\n", reason);
-	beacon_disconnected();
+	if (state == OTA_RECEIVING) {
+		state = error = OTA_ERR_SEQ;
+	}
+	link_release(LINK_OWNER_OTA);
 }
-
-BT_CONN_CB_DEFINE(ota_conn_callbacks) = { .connected = connected,
-	.disconnected = disconnected };
 
 void ota_init(void)
 {
@@ -305,5 +285,5 @@ void ota_init(void)
 
 bool ota_is_active(void)
 {
-	return active_conn || state == OTA_RECEIVING || state == OTA_DONE;
+	return link_is_owner(LINK_OWNER_OTA);
 }

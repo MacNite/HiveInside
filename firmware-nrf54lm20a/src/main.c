@@ -20,6 +20,8 @@
 #include "beacon.h"
 #include "hive_config.h"
 #include "measurement.h"
+#include "audio.h"
+#include "link.h"
 #include "mic.h"
 #include "ota.h"
 #include "power.h"
@@ -178,11 +180,15 @@ int main(void)
 	measurement_led_init();
 	beacon_err = beacon_init();
 	ota_init();
+	audio_init();
 	/* Armed after the one-time initialisation above, which is not covered by
 	 * the watchdog: a hang in a driver's init would leave the node dark rather
 	 * than reset-looping, and MCUboot's own rollback deadline below is the
 	 * safety net for an image that cannot get this far. */
 	hive_watchdog_init();
+	/* power_init() owns the boot-time rail reference; normal users take their
+	 * own references below. */
+	(void)power_sensor_rail_disable();
 	confirmation_pending = !boot_is_img_confirmed();
 	/* Do not confirm a test image merely because main() was reached. Wait until
 	 * one complete sensor cycle has run and Bluetooth has successfully published
@@ -204,11 +210,14 @@ int main(void)
 	while (true) {
 		hive_watchdog_feed();
 
-		if (ota_is_active()) {
+		if (link_is_busy()) {
 			/* A firmware upload legitimately takes minutes. Polling here
 			 * means the main thread is healthy, so keep feeding: the
 			 * watchdog must not cut a transfer short. */
 			k_msleep(100);
+			continue;
+		}
+		if (!link_measurement_begin()) {
 			continue;
 		}
 		struct measurement m = { 0 };
@@ -221,13 +230,14 @@ int main(void)
 		accel_read(&m);
 		mic_read(&m);
 		(void)power_sensor_rail_disable();
+		link_measurement_end();
 		battery_read(&m);
 
 		print_readout(&m);
 		if (beacon_publish(&m) == 0) {
 			measurement_led_blink();
 			if (confirmation_pending && !confirmation_attempted &&
-			    !ota_is_active()) {
+			    !link_is_busy()) {
 				/* Make at most one trailer-write attempt per boot. A persistent
 				 * flash error must not cause periodic writes for the lifetime of
 				 * the device; leaving the image unconfirmed preserves rollback. */

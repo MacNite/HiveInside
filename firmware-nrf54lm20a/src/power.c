@@ -28,6 +28,8 @@
 
 static const struct device *const ldo1 = DEVICE_DT_GET(LDO1_NODE);
 static bool sensor_rail_enabled;
+static uint32_t sensor_rail_users;
+K_MUTEX_DEFINE(sensor_rail_lock);
 
 /* P1.12 gates the complete Sense-board sensor supply.  LDO1 being enabled is
  * not sufficient when this upstream fixed regulator is off.  Seeed's DMIC
@@ -132,6 +134,7 @@ void power_init(void)
 		return;
 	}
 	sensor_rail_enabled = true;
+	sensor_rail_users = 1;
 	/* The IMU and microphone share this rail. Give both parts time to
 	 * leave reset before their first I2C/PDM transaction. */
 	k_msleep(20);
@@ -141,8 +144,11 @@ void power_init(void)
 int power_sensor_rail_enable(void)
 {
 	int err;
+	k_mutex_lock(&sensor_rail_lock, K_FOREVER);
 
 	if (sensor_rail_enabled) {
+		sensor_rail_users++;
+		k_mutex_unlock(&sensor_rail_lock);
 		return 0;
 	}
 
@@ -151,30 +157,44 @@ int power_sensor_rail_enable(void)
 #if DT_NODE_EXISTS(DT_NODELABEL(power_en))
 	err = enable_regulator(power_en, "sensor power gate");
 	if (err != 0) {
+		k_mutex_unlock(&sensor_rail_lock);
 		return err;
 	}
 #endif
 
 	err = enable_regulator(ldo1, "LDO1");
 	if (err != 0) {
+		k_mutex_unlock(&sensor_rail_lock);
 		return err;
 	}
 	sensor_rail_enabled = true;
+	sensor_rail_users = 1;
 	/* The IMU and microphone need time to leave reset before use. */
 	k_msleep(20);
+	k_mutex_unlock(&sensor_rail_lock);
 	return 0;
 }
 
 int power_sensor_rail_disable(void)
 {
 	int err;
+	k_mutex_lock(&sensor_rail_lock, K_FOREVER);
 
-	if (!sensor_rail_enabled) {
+	/* Every successful enable owns one reference.  Only its matching disable
+	 * may drop that reference, and hardware is switched off at zero. */
+	if (!sensor_rail_enabled || sensor_rail_users == 0U) {
+		k_mutex_unlock(&sensor_rail_lock);
+		return 0;
+	}
+	if (--sensor_rail_users != 0U) {
+		k_mutex_unlock(&sensor_rail_lock);
 		return 0;
 	}
 
 	err = disable_regulator(ldo1, "LDO1");
 	if (err != 0) {
+		sensor_rail_users = 1;
+		k_mutex_unlock(&sensor_rail_lock);
 		return err;
 	}
 	sensor_rail_enabled = false;
@@ -185,10 +205,12 @@ int power_sensor_rail_disable(void)
 	 * measurement. Reverse order of the enable above. */
 	err = disable_regulator(power_en, "sensor power gate");
 	if (err != 0) {
+		k_mutex_unlock(&sensor_rail_lock);
 		return err;
 	}
 #endif
 
+	k_mutex_unlock(&sensor_rail_lock);
 	return 0;
 }
 

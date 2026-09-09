@@ -19,6 +19,7 @@
 #include "fft.h"
 #include "hive_config.h"
 
+#include <errno.h>
 #include <math.h>
 #include <zephyr/audio/dmic.h>
 #include <zephyr/devicetree.h>
@@ -30,7 +31,7 @@
 #define MIC_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_pdm)
 
 #define BLOCK_BYTES     (MIC_BLOCK_SAMPLES * sizeof(int16_t))
-#define BLOCK_COUNT     4
+#define BLOCK_COUNT     6
 #define READ_TIMEOUT_MS 1000
 
 #define FULL_SCALE   32768.0f /* 16-bit PCM */
@@ -44,6 +45,41 @@ K_MEM_SLAB_DEFINE_STATIC(mic_slab, BLOCK_BYTES, BLOCK_COUNT, 4);
 static float fft_re[MIC_FFT_SAMPLE_COUNT];
 static float fft_im[MIC_FFT_SAMPLE_COUNT];
 static int16_t fft_pcm[MIC_FFT_SAMPLE_COUNT];
+
+int mic_stream_start(void)
+{
+	if (!device_is_ready(dmic_dev)) {
+		return -ENODEV;
+	}
+	struct pcm_stream_cfg stream = {
+		.pcm_rate = MIC_SAMPLE_RATE, .pcm_width = 16,
+		.block_size = BLOCK_BYTES, .mem_slab = &mic_slab,
+	};
+	struct dmic_cfg cfg = {
+		.io = { .min_pdm_clk_freq = 1000000, .max_pdm_clk_freq = 3500000,
+			.min_pdm_clk_dc = 40, .max_pdm_clk_dc = 60 },
+		.streams = &stream,
+		.channel = { .req_num_streams = 1, .req_num_chan = 1 },
+	};
+	cfg.channel.req_chan_map_lo = dmic_build_channel_map(0, 0, PDM_CHAN_LEFT);
+	int err = dmic_configure(dmic_dev, &cfg);
+	return err != 0 ? err : dmic_trigger(dmic_dev, DMIC_TRIGGER_START);
+}
+
+int mic_stream_read(void **buf, uint32_t *size, int32_t timeout_ms)
+{
+	return dmic_read(dmic_dev, 0, buf, size, timeout_ms);
+}
+
+void mic_stream_release(void *buf)
+{
+	k_mem_slab_free(&mic_slab, buf);
+}
+
+void mic_stream_stop(void)
+{
+	(void)dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
+}
 
 static float band_energy_dbfs(const float *mag, float lo_hz, float hi_hz,
 			      float norm)
@@ -96,41 +132,9 @@ void mic_read(struct measurement *m)
 {
 	m->mic_ok = false;
 
-	if (!device_is_ready(dmic_dev)) {
-		printk("[MIC] PDM device not ready\n");
-		return;
-	}
-
-	struct pcm_stream_cfg stream = {
-		.pcm_rate = MIC_SAMPLE_RATE,
-		.pcm_width = 16,
-		.block_size = BLOCK_BYTES,
-		.mem_slab = &mic_slab,
-	};
-	struct dmic_cfg cfg = {
-		.io = {
-			/* Clock window covering MSM261DGT006-class mics. */
-			.min_pdm_clk_freq = 1000000,
-			.max_pdm_clk_freq = 3500000,
-			.min_pdm_clk_dc = 40,
-			.max_pdm_clk_dc = 60,
-		},
-		.streams = &stream,
-		.channel = {
-			.req_num_streams = 1,
-			.req_num_chan = 1,
-		},
-	};
-
-	cfg.channel.req_chan_map_lo = dmic_build_channel_map(0, 0, PDM_CHAN_LEFT);
-
-	int err = dmic_configure(dmic_dev, &cfg);
-
-	if (err != 0) {
-		printk("[MIC] dmic_configure failed (%d)\n", err);
-		return;
-	}
-	err = dmic_trigger(dmic_dev, DMIC_TRIGGER_START);
+	/* link's session gate is held for the complete measurement cycle, keeping
+	 * this one-shot capture exclusive with audio's use of the PDM controller. */
+	int err = mic_stream_start();
 	if (err != 0) {
 		printk("[MIC] start failed (%d)\n", err);
 		return;
@@ -146,7 +150,7 @@ void mic_read(struct measurement *m)
 		void *buf;
 		uint32_t size;
 
-		err = dmic_read(dmic_dev, 0, &buf, &size, READ_TIMEOUT_MS);
+		err = mic_stream_read(&buf, &size, READ_TIMEOUT_MS);
 		if (err != 0) {
 			printk("[MIC] read failed (%d) after %u frames\n", err,
 			       (unsigned)count);
@@ -155,7 +159,7 @@ void mic_read(struct measurement *m)
 
 		if (block++ < MIC_WARMUP_BLOCKS) {
 			/* Discard: PDM filter + mic output still settling. */
-			k_mem_slab_free(&mic_slab, buf);
+			mic_stream_release(buf);
 			continue;
 		}
 
@@ -179,15 +183,12 @@ void mic_read(struct measurement *m)
 			}
 			count++;
 		}
-		k_mem_slab_free(&mic_slab, buf);
+		mic_stream_release(buf);
 	}
 
 	/* Stop the PDM clock between captures — the microphone consumes power
 	 * whenever it is clocked. */
-	err = dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
-	if (err != 0) {
-		printk("[MIC] stop failed (%d)\n", err);
-	}
+	mic_stream_stop();
 
 	if (count == 0) {
 		printk("[MIC] no PCM samples\n");
@@ -222,6 +223,14 @@ void mic_read(struct measurement *m)
 }
 
 #else /* !ENABLE_MIC or no nordic,nrf-pdm node enabled in the devicetree */
+
+int mic_stream_start(void) { return -ENODEV; }
+int mic_stream_read(void **buf, uint32_t *size, int32_t timeout_ms)
+{
+	ARG_UNUSED(buf); ARG_UNUSED(size); ARG_UNUSED(timeout_ms); return -ENODEV;
+}
+void mic_stream_release(void *buf) { ARG_UNUSED(buf); }
+void mic_stream_stop(void) { }
 
 void mic_read(struct measurement *m)
 {
