@@ -215,11 +215,17 @@ void mic_read(struct measurement *m)
 				   ? 20.0f * log10f(peak_dev / FULL_SCALE)
 				   : SILENCE_DBFS;
 	m->mic_frames = count;
-	m->mic_ok = true;
-
-	if (fft_count >= 64) {
-		compute_bands(fft_count, m);
+	if (fft_count < 64) {
+		/* The MIC flag covers RMS, peak and all five bands. Setting it for a
+		 * short capture left the uncomputed zero-initialized bands looking
+		 * like valid full-scale audio, so reject the whole measurement. */
+		printk("[MIC] only %u FFT samples; skipping\n",
+		       (unsigned)fft_count);
+		return;
 	}
+
+	compute_bands(fft_count, m);
+	m->mic_ok = true;
 }
 
 #else /* !ENABLE_MIC or no nordic,nrf-pdm node enabled in the devicetree */

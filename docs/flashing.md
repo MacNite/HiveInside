@@ -87,12 +87,17 @@ the OTA `BEGIN` frame carries), the commit and the Zephyr revision behind the
 build, and `west-manifest-frozen.yml` plus `build-info-<variant>.zip` are there
 to reproduce it.
 
-Release images are signed with **MCUboot's development key, which is public** —
-that is image formatting, not proof of origin. A device running these images
-accepts any image signed with the same public key. For a deployment you control,
-provision your own key (see the checklist in
-[`ota-over-ble.md`](ota-over-ble.md#production-release-and-recovery-checklist))
-and build your own images.
+The release workflow requires a project-owned MCUboot signing key and refuses to
+produce these artifacts when its `HIVEINSIDE_SIGNING_KEY_PEM` secret is absent.
+This is a required deployment step: the SDK's default development key is public,
+so a node built with it accepts firmware from anyone using that known key. For a
+local deployment build, generate and select the key with
+`SB_CONFIG_BOOT_SIGNATURE_KEY_FILE` exactly as shown in the
+[`ota-over-ble.md` production checklist](ota-over-ble.md#production-release-and-recovery-checklist).
+Keep the private key outside the repository and preserve the matching public key
+plus an SWD recovery path. Signing is currently the trust boundary because the
+unencrypted OTA GATT writes have no HMAC; the filter-accept-list TODO remains in
+`ota_init()` pending coordinated HiveHub bonding support.
 
 ### If the board does not come up
 
