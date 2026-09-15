@@ -42,6 +42,7 @@ enum {
 };
 
 static uint8_t state, error, nonce[8], format;
+static bool nonce_usable;
 static uint32_t bytes_sent, dropped_bytes, running_crc, clipped, samples;
 static uint16_t seq, duration_ds;
 static int8_t gain_db;
@@ -90,9 +91,14 @@ BT_GATT_SERVICE_DEFINE(audio_service,
 
 static void rotate_nonce(void)
 {
-	if (bt_rand(nonce, sizeof(nonce)) != 0) {
-		/* A predictable challenge must never make a microphone available. */
+	nonce_usable = false;
+	if (bt_rand(nonce, sizeof(nonce)) == 0) {
+		nonce_usable = true;
+	} else {
+		/* Substituting a constant after RNG failure made an observed START
+		 * HMAC replayable. Keep the advertised value inert and fail closed. */
 		memset(nonce, 0, sizeof(nonce));
+		printk("[AUDIO] nonce generation failed; START disabled\n");
 	}
 }
 
@@ -132,6 +138,10 @@ static bool key_usable(void)
 
 static bool authenticate(const uint8_t *request)
 {
+	if (!nonce_usable) {
+		printk("[AUDIO] START refused: no unpredictable nonce\n");
+		return false;
+	}
 	if (!key_usable()) {
 		printk("[AUDIO] START refused: audio_secret.h is absent or all zero\n");
 		return false;

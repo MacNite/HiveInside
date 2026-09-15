@@ -194,8 +194,12 @@ reset (up to a full `MEASURE_INTERVAL_MS` away). The deadline is armed only when
 MCUboot reports a real test swap (`BOOT_SWAP_TYPE_REVERT`); a directly
 SWD-flashed image has no rollback target, is never armed, and cannot boot loop.
 
-Only the three OTA characteristics are exposed. A filter accept list would be a
-stronger connection guardrail, but requires a future HiveHub bonding change.
+Only the three OTA characteristics are exposed. They require neither link
+encryption nor the audio service's HMAC, and the node advertises connectably at
+all times. Image-signature trust is therefore the deployment security boundary:
+any nearby central can upload bytes, but only a project-signed image may boot.
+The filter-accept-list TODO in `ota_init()` is intentionally still in place; it
+requires a future, coordinated HiveHub bonding change.
 
 ## Build
 
@@ -340,11 +344,24 @@ over SWD — a device that cannot complete an OTA cannot receive the fix for it.
 
 The SDK's default MCUboot development key is suitable only for bring-up. It is
 publicly known and therefore provides image formatting, **not production
-authenticity**. Before deploying devices, provision a project-owned signing key,
-configure both MCUboot and sysbuild signing to use it, keep the private key out of
-the repository and build logs, and archive the matching public key and recovery
-procedure. Changing the key later requires an SWD recovery image whose MCUboot
-contains the new public key.
+authenticity**. Using a project-owned key is a required deployment step, not an
+optional hardening measure. Generate it with MCUboot's `imgtool keygen`, store
+the private PEM outside the repository, and select it at the sysbuild level so
+MCUboot and application signing cannot diverge:
+
+```bash
+python bootloader/mcuboot/scripts/imgtool.py keygen \
+  -k /secure/hiveinside-signing.pem -t rsa-2048
+west build --pristine=always --sysbuild \
+  -b xiao_nrf54lm20a/nrf54lm20a/cpuapp -d build firmware-nrf54lm20a -- \
+  -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=/secure/hiveinside-signing.pem
+```
+
+Keep the key out of build logs, archive its matching public key and the recovery
+procedure, and provision the `HIVEINSIDE_SIGNING_KEY_PEM` GitHub Actions secret
+before running `.github/workflows/release.yml`; that workflow now refuses to
+produce artifacts without it and verifies MCUboot selected it. Changing the key
+later requires an SWD recovery image whose MCUboot contains the new public key.
 
 For every release:
 
@@ -365,13 +382,13 @@ For every release:
    whose bootloader, signing key, partition layout, or radio/application startup
    is broken.
 
-Steps 1 and 3 are mechanised: `.github/workflows/release.yml` builds both
+Steps 1 and 3 are mechanised: `.github/workflows/release.yml` requires the
+project-owned signing-key secret, builds both
 variants pristine on a tag, publishes the version-stamped payload together with
 a `manifest.txt` carrying each payload's byte size and CRC-32, and attaches the
 frozen west manifest and both images' Kconfig so the build can be reproduced.
-Steps 2, 4 and 5 still need a person and a board. Note that those published
-images use the **development** signing key — a deployment with its own key has
-to build and publish its own artifacts.
+Steps 2, 4 and 5 still need a person and a board. The workflow fails before the
+build rather than publishing an artifact made with the development key.
 
 ## Implementation
 

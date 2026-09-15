@@ -43,7 +43,7 @@
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
 #define HIVEINSIDE_FW_VERSION_MINOR 6
-#define HIVEINSIDE_FW_VERSION_PATCH 2
+#define HIVEINSIDE_FW_VERSION_PATCH 3
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
 #define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
@@ -89,7 +89,7 @@
 #define HIVEINSIDE_COMPANY_ID 0x02E5
 #endif
 
-/* A one-second non-connectable advertising interval is short enough to be
+/* A one-second connectable advertising interval is short enough to be
  * heard reliably in HiveHub's scan window while allowing the controller to
  * sleep between three brief advertising-channel transmissions. BLE intervals
  * use 0.625 ms units. */

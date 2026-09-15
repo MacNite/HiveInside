@@ -77,6 +77,22 @@ jobs:
           app-path: hiveinside
           toolchains: arm-zephyr-eabi
 
+      - name: Require the deployment signing key
+        env:
+          SIGNING_KEY_PEM: ${{ secrets.HIVEINSIDE_SIGNING_KEY_PEM }}
+        run: |
+          set -eu
+          # The SDK fallback is a public key: allowing it here would make a
+          # release image deployable by anybody who possesses that known key.
+          test -n "$SIGNING_KEY_PEM" || {
+            echo "HIVEINSIDE_SIGNING_KEY_PEM must contain the deployment private key" >&2
+            exit 1
+          }
+          key_file="$RUNNER_TEMP/hiveinside-signing.pem"
+          umask 077
+          printf '%s\n' "$SIGNING_KEY_PEM" > "$key_file"
+          echo "SIGNING_KEY_FILE=$key_file" >> "$GITHUB_ENV"
+
       - name: Read the firmware version
         working-directory: hiveinside
         run: |
@@ -99,7 +115,14 @@ jobs:
             -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
             -d "${{ matrix.config }}" \
             firmware-nrf54lm20a \
-            ${EXTRA:+-- $EXTRA}
+            -- -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE="$SIGNING_KEY_FILE" $EXTRA
+
+          # Refuse artifacts unless MCUboot actually embedded the provisioned
+          # key; merely writing the secret without selecting it would silently
+          # fall back to the SDK's publicly known development key.
+          grep -Fqx \
+            "CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$SIGNING_KEY_FILE\"" \
+            "${{ matrix.config }}/mcuboot/zephyr/.config"
 
       - name: Collect the release images
         working-directory: hiveinside
@@ -230,9 +253,9 @@ jobs:
             echo "zephyr revision  : $(cat staging/openocd/ZEPHYR_REVISION)"
             echo "built by         : ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
-            echo "Signing key: MCUboot's RSA-2048 *development* key, which is public."
-            echo "That provides image formatting, not production authenticity — any"
-            echo "image signed with the same public key is accepted by these builds."
+            echo "Signing key: project-owned deployment key supplied to release CI."
+            echo "The private key is not included; archive its matching public key and"
+            echo "the SWD recovery procedure described in docs/ota-over-ble.md."
             echo
             echo "OTA payloads (upload to HiveHub; size and CRC-32 are what the OTA"
             echo "BEGIN frame carries):"

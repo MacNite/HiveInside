@@ -164,7 +164,10 @@ static bool sample_xyz(uint32_t period_us, float *x_mg, float *y_mg,
 			break;
 		}
 		if (k_uptime_ticks() > deadline) {
-			break;
+			/* Reading after data-ready timed out returned the previous sample,
+			 * making a stuck IMU look like valid zero vibration. Fail this
+			 * sample so accel_read() rejects a short capture instead. */
+			return false;
 		}
 		k_usleep(200);
 	}

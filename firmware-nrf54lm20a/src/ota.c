@@ -119,7 +119,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	const uint8_t *p = buf;
 	int rc;
 
-	ARG_UNUSED(conn); ARG_UNUSED(attr); ARG_UNUSED(flags);
+	ARG_UNUSED(attr); ARG_UNUSED(flags);
 	if (offset || !len) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
@@ -152,6 +152,18 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		if (!link_claim(LINK_OWNER_OTA)) {
 			fail(OTA_ERR_BEGIN); return len;
 		}
+		/* Leaving OTA at the generic 30--50 ms link interval made every
+		 * write-with-response wait needlessly: its ATT response is the flash
+		 * flow-control boundary. Match audio's faster link setup after claim. */
+		struct bt_le_conn_param cp = {
+			.interval_min = HIVE_AUDIO_CONN_INTERVAL_UNITS,
+			.interval_max = HIVE_AUDIO_CONN_INTERVAL_UNITS,
+			.latency = 0,
+			.timeout = OTA_SUPERVISION_TIMEOUT,
+		};
+		(void)bt_conn_le_param_update(conn, &cp);
+		(void)bt_conn_le_data_len_update(conn, BT_LE_DATA_LEN_PARAM_MAX);
+		(void)bt_conn_le_phy_update(conn, BT_CONN_LE_PHY_PARAM_2M);
 		received = 0;
 		/* crc32_ieee_update uses zlib's pre/post complement internally. */
 		running_crc = 0;
