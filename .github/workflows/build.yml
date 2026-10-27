@@ -104,6 +104,25 @@ jobs:
           out="${{ matrix.config }}/firmware-nrf54lm20a/zephyr"
           ls -l "$out"/hiveinside-nrf54lm20a-v*-${{ matrix.variant }}.signed.bin
 
+      - name: Check the bootloader key checker against the development key
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # CI builds without a deployment key, so MCUboot embeds the public
+          # development key. release.yml relies on this checker to refuse
+          # exactly that bootloader; exercise it here so a change to the
+          # checker or to imgtool cannot first fail on release day.
+          mcuboot=$(west topdir)/bootloader/mcuboot
+          if python3 tools/release/check_bootloader_key.py \
+              --imgtool "$mcuboot/scripts" --dev-keys "$mcuboot" \
+              "${{ matrix.config }}/mcuboot/zephyr/zephyr.bin"; then
+            echo "checker did not flag the development-key bootloader" >&2
+            exit 1
+          fi
+          python3 tools/release/check_bootloader_key.py \
+            --imgtool "$mcuboot/scripts" --key "$mcuboot/root-rsa-2048.pem" \
+            "${{ matrix.config }}/mcuboot/zephyr/zephyr.bin"
+
       # Keep the images around so a change can be tried on hardware before it
       # is tagged. Releases are built and published by release.yml; these are
       # the same files without the manifest, checksums and flashing bundle.

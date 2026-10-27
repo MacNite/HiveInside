@@ -354,14 +354,20 @@ python bootloader/mcuboot/scripts/imgtool.py keygen \
   -k /secure/hiveinside-signing.pem -t rsa-2048
 west build --pristine=always --sysbuild \
   -b xiao_nrf54lm20a/nrf54lm20a/cpuapp -d build firmware-nrf54lm20a -- \
-  -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=/secure/hiveinside-signing.pem
+  -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"/secure/hiveinside-signing.pem\"
 ```
+
+The escaped quotes are required: the option is a Kconfig string, and without
+them sysbuild reports a malformed string literal and aborts the configure step.
 
 Keep the key out of build logs, archive its matching public key and the recovery
 procedure, and provision the `HIVEINSIDE_SIGNING_KEY_PEM` GitHub Actions secret
 before running `.github/workflows/release.yml`; that workflow now refuses to
 produce artifacts without it and verifies MCUboot selected it. Changing the key
 later requires an SWD recovery image whose MCUboot contains the new public key.
+That also applies to every node provisioned from a release up to v0.6: those
+bootloaders trust the public development key and need SWD re-provisioning (see
+[flashing.md](flashing.md#releases-up-to-v06-trust-the-public-development-key)).
 
 For every release:
 
@@ -383,7 +389,9 @@ For every release:
    is broken.
 
 Steps 1 and 3 are mechanised: `.github/workflows/release.yml` requires the
-project-owned signing-key secret, builds both
+project-owned signing-key secret, checks that the built bootloader embeds that
+key and no MCUboot development key, verifies each OTA payload's signature,
+records the key fingerprint in `manifest.txt`, builds both
 variants pristine on a tag, publishes the version-stamped payload together with
 a `manifest.txt` carrying each payload's byte size and CRC-32, and attaches the
 frozen west manifest and both images' Kconfig so the build can be reproduced.

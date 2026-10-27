@@ -111,11 +111,14 @@ jobs:
           EXTRA: ${{ matrix.extra }}
         run: |
           set -eux
+          # A Kconfig string needs its quotes on the command line: without the
+          # escaped pair, sysbuild reports a malformed string literal and
+          # aborts the configure step.
           west build --pristine=always --sysbuild \
             -b xiao_nrf54lm20a/nrf54lm20a/cpuapp \
             -d "${{ matrix.config }}" \
             firmware-nrf54lm20a \
-            -- -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE="$SIGNING_KEY_FILE" $EXTRA
+            -- -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\""$SIGNING_KEY_FILE"\" $EXTRA
 
           # Refuse artifacts unless MCUboot actually embedded the provisioned
           # key; merely writing the secret without selecting it would silently
@@ -123,6 +126,27 @@ jobs:
           grep -Fqx \
             "CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$SIGNING_KEY_FILE\"" \
             "${{ matrix.config }}/mcuboot/zephyr/.config"
+
+      - name: Verify the bootloader trusts only the deployment key
+        working-directory: hiveinside
+        env:
+          CONFIG: ${{ matrix.config }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          # pipefail: the key check's status must survive the tee below.
+          set -euxo pipefail
+          mcuboot=$(west topdir)/bootloader/mcuboot
+          # The .config check above proves the option was selected; this proves
+          # the bytes. The bootloader must embed the deployment public key and
+          # none of MCUboot's published development keys, and the OTA payload
+          # must carry a signature that key verifies.
+          mkdir -p dist
+          python3 tools/release/check_bootloader_key.py \
+            --imgtool "$mcuboot/scripts" \
+            --key "$SIGNING_KEY_FILE" --dev-keys "$mcuboot" \
+            "$CONFIG/mcuboot/zephyr/zephyr.bin" | tee "dist/key-$VARIANT.txt"
+          python3 "$mcuboot/scripts/imgtool.py" verify -k "$SIGNING_KEY_FILE" \
+            "$CONFIG/firmware-nrf54lm20a/zephyr/zephyr.signed.bin"
 
       - name: Collect the release images
         working-directory: hiveinside
@@ -256,6 +280,9 @@ jobs:
             echo "Signing key: project-owned deployment key supplied to release CI."
             echo "The private key is not included; archive its matching public key and"
             echo "the SWD recovery procedure described in docs/ota-over-ble.md."
+            echo "Fingerprint of the key the bootloader trusts (SHA-256 of the public"
+            echo "key bytes MCUboot embeds; tools/release/check_bootloader_key.py):"
+            sort -u staging/key-*.txt | sed 's/^/  /'
             echo
             echo "OTA payloads (upload to HiveHub; size and CRC-32 are what the OTA"
             echo "BEGIN frame carries):"
