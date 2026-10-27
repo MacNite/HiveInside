@@ -10,6 +10,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The firmware's protocol, lifecycle and DSP code, compiled for the build
+  # machine against the Zephyr stand-ins in tests/host/shim and run under
+  # AddressSanitizer and UndefinedBehaviorSanitizer. Seconds, not minutes, and
+  # independent of the Zephyr workspace the firmware jobs below set up.
+  host-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run the host regression tests
+        run: |
+          set -eux
+          # Recent runner kernels randomise mmap addresses beyond what
+          # AddressSanitizer's shadow layout accepts; 28 bits is its limit.
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          cmake -S tests/host -B build-host
+          cmake --build build-host --parallel
+          ctest --test-dir build-host --output-on-failure
+
   # Build both configurations the way docs/vscode-build.md describes them: a
   # real `west --sysbuild` build producing MCUboot + the signed application,
   # against the upstream Zephyr revision pinned in west.yml.
