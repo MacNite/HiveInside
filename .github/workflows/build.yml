@@ -36,6 +36,9 @@ jobs:
           cmake --build build-host --parallel
           ctest --test-dir build-host --output-on-failure
 
+      - name: Check relative links in the documentation
+        run: python3 tools/ci/check_md_links.py
+
   # Build both configurations the way docs/vscode-build.md describes them: a
   # real `west --sysbuild` build producing MCUboot + the signed application,
   # against the upstream Zephyr revision pinned in west.yml.

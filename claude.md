@@ -64,5 +64,23 @@ The version lives in exactly one place, `firmware-nrf54lm20a/src/hive_config.h`:
 
 ```c
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
-#define HIVEINSIDE_FW_VERSION_MINOR 4
-#define HIVEINSIDE_FW_VERSION_PATCH 7
+#define HIVEINSIDE_FW_VERSION_MINOR 7
+#define HIVEINSIDE_FW_VERSION_PATCH 0
+```
+
+The beacon identity record, the console banner, the OTA artifact name and the
+signed MCUboot header version (`firmware-nrf54lm20a/sysbuild.cmake`) are all
+derived from these three numbers. OTA refuses an image older than the running
+one, so a fleet rollback is a re-release under a higher version.
+
+## Tests
+
+Protocol, lifecycle and DSP changes need a host regression test in
+`tests/host/` (see its `CMakeLists.txt`): the real module sources compiled
+against the Zephyr stand-ins in `tests/host/shim/`, under ASan and UBSan, and
+run by the `host-tests` CI job. Run them before pushing:
+
+```bash
+cmake -S tests/host -B build-host && cmake --build build-host
+ctest --test-dir build-host --output-on-failure
+```

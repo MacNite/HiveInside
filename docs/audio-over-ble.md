@@ -186,6 +186,13 @@ winding down (at most a few hundred milliseconds) sees busy `12` until it has. A
 access control; audio is not encrypted unless the BLE connection itself is
 secured by the client.
 
+That is a deliberate, interim decision rather than an oversight: requiring an
+encrypted, bonded link would lock out every current HiveHub relay, which cannot
+pair yet. Until it can, treat a recording as readable by anyone with a sniffer in
+radio range — it can contain speech near the hive — and record only where that
+is acceptable. Requiring LE Secure Connections bonding for both audio and OTA is
+planned together with HiveHub bonding support (see [SECURITY.md](../SECURITY.md)).
+
 ## Troubleshooting
 
 * **Error 14:** subscribe to DATA before START; enabling STATUS alone is not enough.

@@ -11,6 +11,8 @@
 /build/
 /debug/
 /lowpower/
+/spike/
+/build-host/
 */build
 */debug/
 */lowpower/

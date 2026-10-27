@@ -283,3 +283,17 @@ fieldset legend { font-weight: 800; padding: 0 .5rem; font-size: 1.05rem; }
 ul.agree { margin: .5rem 0 0; padding-left: 1.2rem; color: var(--ink-soft); max-width: 72ch; }
 ul.agree li { margin: .35rem 0; }
 ul.agree b { color: var(--ink); }
+
+/* Keyboard access: a skip link that appears on focus, and a visible focus ring
+   in both themes (the honey accent contrasts with either background). */
+.skip-link {
+  position: absolute; left: 1rem; top: -100px; z-index: 1000;
+  padding: .6rem 1rem; border-radius: 8px;
+  background: var(--honey); color: var(--on-accent); font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus { top: .75rem; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--honey); outline-offset: 2px;
+}
+main:focus { outline: none; }

@@ -177,8 +177,8 @@
 /* ── OTA stall timeout ─────────────────────────────────────────────────────
  *
  * How long a transfer may go without a single DATA write before the node
- * abandons it. An in-progress transfer holds the sensor loop (ota_is_active()
- * gates it) and, because the node is connected, stops it advertising — so a
+ * abandons it. An in-progress transfer holds the sensor loop (it owns link.c's
+ * session gate) and, because the node is connected, stops it advertising — so a
  * relay that opens a session and then goes quiet takes the node off the air
  * completely. The watchdog cannot help: the OTA path feeds it deliberately,
  * since a genuine upload takes minutes.

@@ -503,8 +503,3 @@ void ota_init(void)
 	/* TODO: use a filter-accept-list keyed to HiveHub after HiveHub supports
 	 * bonding. That stronger guardrail requires an out-of-scope relay change. */
 }
-
-bool ota_is_active(void)
-{
-	return link_is_owner(LINK_OWNER_OTA);
-}

@@ -95,7 +95,12 @@ HiveInside/
 │   └── src/              main + sensor + FFT + beacon + OTA modules
 ├── enclosure/            Current 3D-printable enclosure files
 ├── tools/flash/          OpenOCD flashing scripts for the prebuilt release images
+├── tools/release/        bootloader signing-key checker used by release CI
+├── tools/throughput/     BLE throughput bench tool (pinned requirements.txt)
+├── tests/host/           host regression tests (ASan/UBSan) for firmware modules
 ├── docs/                 wiring, building, flashing, OTA, Home Assistant
+├── CONTRIBUTING.md       tests, versioning, release and branch policy
+├── SECURITY.md           how to report a vulnerability; security model
 └── README.md
 ```
 

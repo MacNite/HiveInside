@@ -27,11 +27,24 @@
     }
   }
 
+  // Rendering only. Saving is a separate step that just the toggle takes: an
+  // OS theme change must not turn into a stored preference, or the page would
+  // follow the first OS switch and then ignore every later one.
   function apply(theme) {
     root.setAttribute("data-theme", theme);
-    try { localStorage.setItem(KEY, theme); } catch (e) { /* private mode — ignore */ }
     syncButtons(theme);
     window.dispatchEvent(new CustomEvent("themechange", { detail: { theme: theme } }));
+  }
+
+  function save(theme) {
+    try { localStorage.setItem(KEY, theme); } catch (e) { /* private mode — ignore */ }
+  }
+
+  // Only the two values this script writes count as a choice.
+  function savedChoice() {
+    var saved;
+    try { saved = localStorage.getItem(KEY); } catch (e) { saved = null; }
+    return saved === "dark" || saved === "light" ? saved : null;
   }
 
   function init() {
@@ -39,16 +52,16 @@
     document.addEventListener("click", function (e) {
       var btn = e.target.closest && e.target.closest("[data-theme-toggle]");
       if (!btn) return;
-      apply(current() === "dark" ? "light" : "dark");
+      var theme = current() === "dark" ? "light" : "dark";
+      save(theme);
+      apply(theme);
     });
     // Follow the OS theme live, but only while the user hasn't made an explicit
     // choice this browser (nothing saved).
     if (window.matchMedia) {
       var mq = window.matchMedia("(prefers-color-scheme: dark)");
       var onChange = function (e) {
-        var saved;
-        try { saved = localStorage.getItem(KEY); } catch (_) { saved = null; }
-        if (saved) return;
+        if (savedChoice()) return;
         apply(e.matches ? "dark" : "light");
       };
       if (mq.addEventListener) mq.addEventListener("change", onChange);

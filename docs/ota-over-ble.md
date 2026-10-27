@@ -289,8 +289,8 @@ Where it stops tells you which of these you have:
    or pairing problem — check that the node's identity address matches the slot
    the relay is targeting.
 
-2. **`connected` then `connection not armed; disconnecting`.** The central
-   connected but never sent BEGIN within six seconds. The relay reached the node
+2. **`connected` then `connection not claimed; disconnecting`.** The central
+   connected but never sent BEGIN within ten seconds. The relay reached the node
    and gave up, usually because the release row or the download was missing on
    the backend side.
 
