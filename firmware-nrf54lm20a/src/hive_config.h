@@ -42,8 +42,8 @@
  * stamped artifact name disagree with the bytes on the air. Bump it here.
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
-#define HIVEINSIDE_FW_VERSION_MINOR 6
-#define HIVEINSIDE_FW_VERSION_PATCH 3
+#define HIVEINSIDE_FW_VERSION_MINOR 7
+#define HIVEINSIDE_FW_VERSION_PATCH 0
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
 #define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
@@ -183,6 +183,32 @@
  */
 #ifndef HIVE_OTA_STALL_TIMEOUT_MS
 #define HIVE_OTA_STALL_TIMEOUT_MS 30000U
+#endif
+
+/* ── OTA session bounds ───────────────────────────────────────────────────
+ *
+ * The OTA service accepts any central (pairing waits on HiveHub bonding
+ * support), so these bound what a peer that is not a relay can cost.
+ *
+ * HIVE_OTA_SESSION_TIMEOUT_MS caps a whole transfer from BEGIN, however steadily
+ * it trickles in: a full slot at the relay's slowest observed ~1 kB/s takes
+ * under eight minutes.
+ *
+ * After HIVE_OTA_MAX_FAILED_SESSIONS transfers in a row end in an error (bad
+ * size or CRC, flash error, stall, timeout, disconnect mid-transfer), BEGIN is
+ * refused for HIVE_OTA_FAILURE_COOLDOWN_MS. A successful END resets the count.
+ * That keeps a peer from holding the node off the air or cycling slot 1
+ * through writes indefinitely, at the price of a relay that genuinely failed
+ * three times waiting out the cooldown.
+ */
+#ifndef HIVE_OTA_SESSION_TIMEOUT_MS
+#define HIVE_OTA_SESSION_TIMEOUT_MS 600000U
+#endif
+#ifndef HIVE_OTA_MAX_FAILED_SESSIONS
+#define HIVE_OTA_MAX_FAILED_SESSIONS 3U
+#endif
+#ifndef HIVE_OTA_FAILURE_COOLDOWN_MS
+#define HIVE_OTA_FAILURE_COOLDOWN_MS 600000U
 #endif
 
 /* ── BLE throughput spike (issue #71, phase 0e — TEMPORARY) ───────────────

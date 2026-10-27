@@ -38,7 +38,7 @@ CTRL commands are:
 | Opcode | Exact bytes | Meaning |
 |---|---|---|
 | `0x01` START | `op, duration_ds(2 LE), rate_code, format, gain_db, hmac(8)` | authenticate and capture |
-| `0x02` STOP | `op` | end the current stream |
+| `0x02` STOP | `op` | end the current session, whether ARMED or STREAMING |
 
 `duration_ds=0` means live/open-ended. Every session still stops at 60 seconds.
 The only rate code is 0 (16 kHz); the only implemented format is 0 (PCM16 LE
@@ -53,9 +53,9 @@ STATUS is always exactly 30 bytes:
 | 1 | 1 | error |
 | 2 | 8 | current authentication nonce |
 | 10 | 4 | transmitted PCM bytes, LE |
-| 14 | 4 | elapsed milliseconds, LE |
-| 18 | 4 | bytes lost to ring overrun, LE |
-| 22 | 4 | IEEE CRC-32 of transmitted, post-gain PCM, LE |
+| 14 | 4 | elapsed milliseconds, LE (frozen once the session ends) |
+| 18 | 4 | captured PCM bytes never transmitted (ring overrun or abandoned session), LE |
+| 22 | 4 | IEEE CRC-32 of exactly the transmitted bytes counted at offset 10, LE |
 | 26 | 2 | sample rate (16000), LE |
 | 28 | 1 | format (0) |
 | 29 | 1 | clipped samples as integer percent |
@@ -63,6 +63,10 @@ STATUS is always exactly 30 bytes:
 Errors are bad parameters `10`, authentication `11`, busy `12`, microphone
 `13`, DATA not subscribed `14`, notification stall `15`, and unsupported format
 `16`. STATUS notifies on each state change and at completion.
+
+A refused CTRL write sets the error byte but never the state: a duplicate or
+malformed START during a session leaves it ARMED or STREAMING, and STOP still
+ends it.
 
 ## Authentication and client sequence
 
@@ -120,7 +124,8 @@ rather than a configuration one.
 
 The node compares the tag without early exit. A failed attempt rotates the
 nonce, so reread STATUS before retrying. The nonce also rotates on connection
-and after every completed session.
+and as soon as a START is accepted, so each nonce authorizes exactly one
+session; the ARMED STATUS that answers START already carries the next one.
 
 ## One session at a time
 
@@ -170,9 +175,14 @@ a session by the gate above (and, conversely, a session cannot start while a
 measurement cycle is in flight).
 A connection that claims no service is disconnected after 10 seconds. Capture
 ends at the requested duration, STOP, disconnect, or the absolute 60-second
-cap. Five seconds without a notification completion is a stalled session. Each
-end path stops PDM, removes sensor-rail power, publishes final STATUS where the
-link remains, and releases ownership. Authentication is application-level
+cap. Five seconds without a notification completion is a stalled session. A
+disconnect, a stall or a refused notification abandons the session at once:
+whatever PCM is still buffered is discarded (and counted as dropped) instead of
+being drained, so it can never reach a later connection. Each end path stops
+PDM, waits for the capture thread to release it, removes sensor-rail power,
+clears the ring, publishes final STATUS where the link remains, and only then
+releases ownership. A central that reconnects while the old session is still
+winding down (at most a few hundred milliseconds) sees busy `12` until it has. Authentication is application-level
 access control; audio is not encrypted unless the BLE connection itself is
 secured by the client.
 

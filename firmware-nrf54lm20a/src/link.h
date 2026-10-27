@@ -12,6 +12,13 @@ enum link_owner {
 };
 
 struct bt_conn *link_conn(void);
+/* Identifies the current connection; changes on every new connection. */
+uint32_t link_generation(void);
+/* A referenced handle to the active connection if it is still the one
+ * identified by `generation`, else NULL. Release it with bt_conn_unref(). */
+struct bt_conn *link_conn_get(uint32_t generation);
+/* Ask the controller to drop the active connection, if there is one. */
+void link_disconnect(void);
 bool link_claim(enum link_owner owner);
 void link_release(enum link_owner owner);
 bool link_is_owner(enum link_owner owner);

@@ -115,6 +115,12 @@ so without it a field failure can only ever say "flash write failed", which does
 not distinguish a slot that is too small (`-EINVAL`) from a radio timeslot that
 never arrived (`-ETIMEDOUT`).
 
+Since 0.7.0 the byte also explains errors that are not flash operations: with
+`0x11` it is `-ETIMEDOUT` for the 30-second stall timeout and `-ETIME` for the
+ten-minute session timeout, with `0x10` it is `-EAGAIN` while BEGIN is refused
+after repeated failures, and with `0x15` it can carry the `rc` of
+`boot_request_upgrade()`.
+
 Added in firmware 0.4.7. It is appended after the original six bytes rather than
 replacing anything, so a relay that reads six bytes keeps working unchanged;
 HiveHub reads whatever length the device returns and treats a missing seventh
@@ -149,10 +155,11 @@ HiveScale cannot brick the sensor.
 The nRF54 advertises continuously with legacy connectable/scannable `ADV_IND`
 at the same interval used by the former `ADV_SCAN_IND` beacon. Its primary
 manufacturer payload and name+identity scan response are unchanged. A connection
-which does not send BEGIN within six seconds is disconnected, a transfer that
-goes `HIVE_OTA_STALL_TIMEOUT_MS` (30 s) without a single DATA write is
-abandoned, and a short link supervision timeout releases a vanished central.
-`ota_is_active()` gates the sensor loop while connected or transferring.
+which does not send BEGIN within ten seconds (`HIVE_LINK_ARM_TIMEOUT_MS`) is
+disconnected, a transfer that goes `HIVE_OTA_STALL_TIMEOUT_MS` (30 s) without a
+single DATA write is abandoned, and a short link supervision timeout releases a
+vanished central. The shared link gate in `link.c` holds off the sensor loop
+while a central is connected or a transfer is running.
 
 ## Safety and lifecycle
 
@@ -172,12 +179,32 @@ Every state that gates the sensor loop is bounded, which matters because a
 gated node is off the air entirely: it takes no measurements, and because it is
 connected it is not advertising either, so HiveHub sees nothing at all. The
 watchdog cannot rescue it — the OTA path feeds the watchdog deliberately, since
-a real upload takes minutes. The bounds are: six seconds connected without
+a real upload takes minutes. The bounds are: ten seconds connected without
 BEGIN (arm timeout), thirty seconds receiving without a DATA write (stall
-timeout), and 1.5 seconds in `done` before the reboot fires. A transfer that is
-slow but still progressing is never cut short, and it cannot run forever either:
-`received` is capped at the size declared in BEGIN, after which any further DATA
-write is rejected.
+timeout), ten minutes for the whole transfer (`HIVE_OTA_SESSION_TIMEOUT_MS`),
+and 1.5 seconds in `done` before the reboot fires. `received` is capped at the
+size declared in BEGIN, after which any further DATA write is rejected.
+
+Every error ends the transfer the same way: the node reports the error in
+STATUS, stops the transfer's timers and releases the link, which re-arms the
+ten-second arm timeout. The relay can read STATUS and send a fresh BEGIN in that
+window; otherwise it is disconnected. Until 0.7.0 an error left the transfer
+holding the link with no timer running, so a relay that stayed connected after a
+CRC mismatch kept the node off the air indefinitely.
+
+* A duplicate BEGIN during a transfer is refused (`error` = `0x10`) without
+  touching the transfer in progress; send ABORT first to restart.
+* DATA writes still queued behind a failed transfer are rejected without
+  overwriting the error that ended it.
+* After `HIVE_OTA_MAX_FAILED_SESSIONS` (3) failed transfers in a row — any error,
+  stall, timeout or disconnect mid-transfer — BEGIN is refused for
+  `HIVE_OTA_FAILURE_COOLDOWN_MS` (10 minutes), reported as `0x10` with errno
+  `-EAGAIN`. A successful END resets the count.
+* **END is the commit point.** Once STATUS reads `done`, the pending-upgrade
+  marker is in flash and the next reset of any kind boots the new image, so
+  ABORT is refused (`error` = `0x11`, state stays `done`) and the node reboots as
+  announced. Before 0.7.0 ABORT cancelled the reboot but not the upgrade, which
+  then installed itself at some unrelated later reset.
 
 This health gate proves that the image can boot, sample, and advertise; it cannot
 prove that a future central can discover and complete another OTA session. A
