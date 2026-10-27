@@ -31,10 +31,12 @@
 #       plus the board's OpenOCD config taken from the same Zephyr revision.
 #
 # The version in the file names comes from src/hive_config.h — the same numbers
-# the node advertises — and is deliberately independent of the repository tag.
-# The build asserts they agree with what the build actually produced, so a
-# forgotten version bump fails the release instead of shipping two different
-# images under one version.
+# the node advertises and the signed MCUboot header carries — and is
+# deliberately independent of the repository tag. The build asserts that the
+# file name and the signed header agree with it. Publishing refuses a firmware
+# version that another release already carries and never replaces the assets
+# of an existing release, so a forgotten version bump fails the release
+# instead of shipping two different images under one version.
 name: release
 
 on:
@@ -43,8 +45,10 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Read-only by default. Only the package job, which never sees the signing
+# key, gets write access to attach assets to the release.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -68,11 +72,12 @@ jobs:
               -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
     name: build (${{ matrix.variant }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: hiveinside
+          persist-credentials: false
 
-      - uses: zephyrproject-rtos/action-zephyr-setup@v1
+      - uses: zephyrproject-rtos/action-zephyr-setup@be8136a8bba01580485d98b7ad2d32477c36a49a # v1.0.15
         with:
           app-path: hiveinside
           toolchains: arm-zephyr-eabi
@@ -146,7 +151,21 @@ jobs:
             --key "$SIGNING_KEY_FILE" --dev-keys "$mcuboot" \
             "$CONFIG/mcuboot/zephyr/zephyr.bin" | tee "dist/key-$VARIANT.txt"
           python3 "$mcuboot/scripts/imgtool.py" verify -k "$SIGNING_KEY_FILE" \
-            "$CONFIG/firmware-nrf54lm20a/zephyr/zephyr.signed.bin"
+            "$CONFIG/firmware-nrf54lm20a/zephyr/zephyr.signed.bin" \
+            | tee "$RUNNER_TEMP/verify.txt"
+          # The signed header carries the version OTA's downgrade check
+          # compares; it must be the version the node advertises.
+          grep -Fqx "Image version: $FW_VERSION+0" "$RUNNER_TEMP/verify.txt"
+
+      - name: Refuse diagnostic images
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # The throughput spike adds an unauthenticated GATT service that
+          # makes the node transmit on request. It must never ship, however
+          # its files are named.
+          ! grep -q ENABLE_THROUGHPUT_SPIKE \
+            "${{ matrix.config }}/firmware-nrf54lm20a/zephyr/.config"
 
       - name: Collect the release images
         working-directory: hiveinside
@@ -157,8 +176,8 @@ jobs:
           set -eux
           # Merging the two sysbuild images needs intelhex. The second form is
           # for a runner whose Python is marked externally managed.
-          python3 -m pip install --quiet intelhex \
-            || python3 -m pip install --quiet --break-system-packages intelhex
+          python3 -m pip install --quiet intelhex==2.3.0 \
+            || python3 -m pip install --quiet --break-system-packages intelhex==2.3.0
 
           out="$CONFIG/firmware-nrf54lm20a/zephyr"
           stem="hiveinside-nrf54lm20a-v$FW_VERSION-$VARIANT"
@@ -221,7 +240,7 @@ jobs:
           cp "$cfg" dist/openocd/xiao_nrf54lm20a.cfg
           git -C "$zephyr_base" rev-parse HEAD > dist/openocd/ZEPHYR_REVISION
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-${{ matrix.variant }}
           path: hiveinside/dist
@@ -232,13 +251,16 @@ jobs:
     name: package
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: hiveinside
+          persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: staging
           pattern: release-*
@@ -310,7 +332,7 @@ jobs:
           (cd dist && sha256sum ./* > ../SHA256SUMS && mv ../SHA256SUMS .)
           ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-assets
           path: dist
@@ -325,8 +347,32 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -eux
+          version=$(sed -nE 's/^firmware version : ([0-9.]+).*/\1/p' dist/manifest.txt)
+          test -n "$version"
+
+          # One firmware version, one set of bytes: a version already
+          # published under another tag must not be published again, since
+          # nodes, logs and the OTA downgrade check identify an image by it.
+          gh api --paginate "repos/$GH_REPO/releases" \
+            --jq ".[] | select(.tag_name != \"$TAG\") | .tag_name as \$t | .assets[].name | \"\(\$t) \(.)\"" \
+            > "$RUNNER_TEMP/released-assets.txt"
+          if grep -F -- "-v$version-" "$RUNNER_TEMP/released-assets.txt"; then
+            echo "firmware $version is already released (above); bump" \
+              "HIVEINSIDE_FW_VERSION_* in src/hive_config.h" >&2
+            exit 1
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$GITHUB_WORKSPACE"/dist/* --clobber
+            # Never replace published bytes. A release written by hand
+            # before tagging has no assets yet; anything else means this tag
+            # was already built, and re-running must not swap the files.
+            existing=$(gh release view "$TAG" --json assets --jq '.assets | length')
+            if [ "$existing" -ne 0 ]; then
+              echo "release $TAG already has $existing assets; publish a new" \
+                "version instead of replacing them" >&2
+              exit 1
+            fi
+            gh release upload "$TAG" "$GITHUB_WORKSPACE"/dist/*
           else
             # No release for this tag yet. Create it as a draft rather than
             # publishing: the notes for this repository are written by hand,

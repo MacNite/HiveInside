@@ -72,6 +72,16 @@ if(CONFIG_SERIAL)
 else()
   set(hive_image_variant "lowpower")
 endif()
+# A build that changes the firmware through compiler macros is not the image
+# its CONFIG_SERIAL alone suggests. The throughput spike gets a name of its own;
+# any other macro override is marked as custom, so neither can be mistaken for
+# a release payload once it leaves its build directory. release.yml also
+# refuses the spike outright.
+if(CONFIG_COMPILER_OPT MATCHES "ENABLE_THROUGHPUT_SPIKE=1")
+  set(hive_image_variant "spike")
+elseif(NOT "${CONFIG_COMPILER_OPT}" STREQUAL "")
+  string(APPEND hive_image_variant "-custom")
+endif()
 
 if(NOT hive_fw_version OR NOT hive_board)
   message(WARNING

@@ -116,6 +116,10 @@ The console will print, at boot:
 If that line is missing, the fragment did not take and everything below will
 measure a device that has no throughput service.
 
+The spike also identifies itself without a console: it advertises as
+`HiveInside-TP-XXXX` instead of `HiveInside-XXXX`, and its OTA payload is named
+`…-spike.signed.bin`. The release workflow refuses to package it.
+
 ### 2. Laptop first (cheap sanity check)
 
 ```sh

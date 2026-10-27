@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,7 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Build and run the host regression tests
         run: |
@@ -57,9 +63,10 @@ jobs:
               -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
     name: build (${{ matrix.config }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: hiveinside
+          persist-credentials: false
 
       - name: Verify the west-only source tree
         working-directory: hiveinside
@@ -89,7 +96,7 @@ jobs:
           grep -Eq '^[[:space:]]*lfclk[[:space:]]*\{' "$overlay"
           grep -Eq '^[[:space:]]*xo24m[[:space:]]*\{' "$overlay"
 
-      - uses: zephyrproject-rtos/action-zephyr-setup@v1
+      - uses: zephyrproject-rtos/action-zephyr-setup@be8136a8bba01580485d98b7ad2d32477c36a49a # v1.0.15
         with:
           app-path: hiveinside
           toolchains: arm-zephyr-eabi
@@ -147,7 +154,7 @@ jobs:
       # is tagged. Releases are built and published by release.yml; these are
       # the same files without the manifest, checksums and flashing bundle.
       - name: Keep the images for testers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: images-${{ matrix.variant }}
           path: |

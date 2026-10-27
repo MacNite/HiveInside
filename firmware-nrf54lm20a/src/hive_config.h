@@ -71,7 +71,15 @@
  * factory erase.
  */
 #ifndef HIVEINSIDE_DEVICE_NAME
+#if defined(ENABLE_THROUGHPUT_SPIKE) && ENABLE_THROUGHPUT_SPIKE
+/* A measurement image must be recognisable from a scan alone: it carries an
+ * extra unauthenticated service and must never be mistaken for, or left in
+ * place of, a deployment image. Still matches the "HiveInside" prefix the
+ * throughput tool scans for. */
+#define HIVEINSIDE_DEVICE_NAME "HiveInside-TP"
+#else
 #define HIVEINSIDE_DEVICE_NAME "HiveInside"
+#endif
 #endif
 
 /* "-" plus four hex digits, appended to HIVEINSIDE_DEVICE_NAME. */
