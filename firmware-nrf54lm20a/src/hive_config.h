@@ -300,6 +300,17 @@
 #include <zephyr/sys/util.h>
 BUILD_ASSERT(HIVE_AUDIO_RING_BYTES >= MIC_SAMPLE_RATE,
 	     "audio ring must hold at least 0.5 seconds of PCM16");
+/* fft.c's radix-2 transform needs a power of two of at least 8 (the same test
+ * as HIVE_FFT_LENGTH_VALID), and the acoustic FFT is filled from the level
+ * capture, so it cannot be longer than that. */
+BUILD_ASSERT(ACCEL_SAMPLE_COUNT >= 8 &&
+	     (ACCEL_SAMPLE_COUNT & (ACCEL_SAMPLE_COUNT - 1)) == 0,
+	     "ACCEL_SAMPLE_COUNT must be a power of two, at least 8");
+BUILD_ASSERT(MIC_FFT_SAMPLE_COUNT >= 8 &&
+	     (MIC_FFT_SAMPLE_COUNT & (MIC_FFT_SAMPLE_COUNT - 1)) == 0,
+	     "MIC_FFT_SAMPLE_COUNT must be a power of two, at least 8");
+BUILD_ASSERT(MIC_FFT_SAMPLE_COUNT <= MIC_SAMPLE_FRAMES,
+	     "the acoustic FFT is filled from the MIC_SAMPLE_FRAMES level capture");
 
 /* Acoustic FFT bands (Hz), identical to HiveScale/HiveHub. */
 #define MIC_BAND_SUBBASS_LO 50   /*   50–150 Hz structural / low rumble */

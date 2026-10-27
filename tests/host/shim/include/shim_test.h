@@ -51,6 +51,11 @@ void shim_bt_reset(void);
 void shim_flash_fail_write(unsigned int n, int rc);
 size_t shim_flash_written(void);
 bool shim_upgrade_pending(void);
+/* The signed header version boot_read_bank_header() reports for slot 0
+ * (running) or slot 1 (uploaded); valid false makes the read fail. Both
+ * default to a valid 1.0.0. */
+void shim_set_image_version(int slot, bool valid, uint8_t major, uint8_t minor,
+			    uint16_t revision);
 unsigned int shim_reboots(void);
 void shim_flash_reset(void);
 #define SHIM_SLOT_SIZE (64U * 1024U)

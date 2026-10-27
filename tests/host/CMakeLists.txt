@@ -41,3 +41,5 @@ hive_host_test(test_ota)
 # A short stall timeout keeps the stalled-link case quick.
 hive_host_test(test_audio -DCONFIG_BT_BUF_ACL_TX_COUNT=6
                           -DHIVE_AUDIO_STALL_TIMEOUT_MS=300U)
+hive_host_test(test_power)
+hive_host_test(test_fft)

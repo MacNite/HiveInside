@@ -271,12 +271,31 @@ int flash_img_buffered_write(struct flash_img_context *ctx, const uint8_t *data,
 size_t flash_img_bytes_written(struct flash_img_context *ctx);
 
 struct flash_area { uint32_t fa_off; size_t fa_size; };
-#define FIXED_PARTITION_ID(label) 1
+#define SHIM_PARTITION_slot0_partition 0
+#define SHIM_PARTITION_slot1_partition 1
+#define FIXED_PARTITION_ID(label) SHIM_PARTITION_##label
 int flash_area_open(uint8_t id, const struct flash_area **fa);
 void flash_area_close(const struct flash_area *fa);
 
 #define BOOT_UPGRADE_TEST 0
 int boot_request_upgrade(int permanent);
+
+struct mcuboot_img_sem_ver {
+	uint8_t major;
+	uint8_t minor;
+	uint16_t revision;
+	uint32_t build_num;
+};
+struct mcuboot_img_header_v1 {
+	uint32_t image_size;
+	struct mcuboot_img_sem_ver sem_ver;
+};
+struct mcuboot_img_header {
+	uint32_t mcuboot_version;
+	union { struct mcuboot_img_header_v1 v1; } h;
+};
+int boot_read_bank_header(uint8_t area_id, struct mcuboot_img_header *header,
+			  size_t header_size);
 
 #define SYS_REBOOT_COLD 1
 void sys_reboot(int type);

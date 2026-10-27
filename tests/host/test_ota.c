@@ -279,6 +279,44 @@ static void test_failure_cooldown(void)
 	CHECK_EQ(failed_sessions, 0);
 }
 
+/* HI-07: an older signed image is refused at END; equal and newer pass. */
+static void test_downgrade_refused(void)
+{
+	setup();
+	shim_set_image_version(0, true, 0, 7, 0);
+	shim_set_image_version(1, true, 0, 6, 9);
+	begin(sizeof(image), crc32_ieee(image, sizeof(image)));
+	data(0, sizeof(image));
+	end();
+	CHECK_EQ(status_byte(0), E_END);
+	CHECK_EQ((int8_t)status_byte(6), -EPERM);
+	CHECK(!shim_upgrade_pending());
+	check_released();
+}
+
+static void test_same_version_accepted(void)
+{
+	setup();
+	shim_set_image_version(0, true, 0, 7, 0);
+	shim_set_image_version(1, true, 0, 7, 0);
+	begin(sizeof(image), crc32_ieee(image, sizeof(image)));
+	data(0, sizeof(image));
+	end();
+	CHECK_EQ(status_byte(0), S_DONE);
+}
+
+static void test_unreadable_header_refused(void)
+{
+	setup();
+	shim_set_image_version(1, false, 0, 0, 0);
+	begin(sizeof(image), crc32_ieee(image, sizeof(image)));
+	data(0, sizeof(image));
+	end();
+	CHECK_EQ(status_byte(0), E_END);
+	CHECK_EQ((int8_t)status_byte(6), -EBADMSG);
+	CHECK(!shim_upgrade_pending());
+}
+
 static void test_disconnect_mid_transfer(void)
 {
 	setup();
@@ -320,6 +358,9 @@ int main(void)
 	RUN(test_stall_timeout);
 	RUN(test_session_timeout);
 	RUN(test_failure_cooldown);
+	RUN(test_downgrade_refused);
+	RUN(test_same_version_accepted);
+	RUN(test_unreadable_header_refused);
 	RUN(test_disconnect_mid_transfer);
 	RUN(test_unclaimed_connection_is_dropped);
 	return shim_failures != 0;

@@ -118,8 +118,9 @@ never arrived (`-ETIMEDOUT`).
 Since 0.7.0 the byte also explains errors that are not flash operations: with
 `0x11` it is `-ETIMEDOUT` for the 30-second stall timeout and `-ETIME` for the
 ten-minute session timeout, with `0x10` it is `-EAGAIN` while BEGIN is refused
-after repeated failures, and with `0x15` it can carry the `rc` of
-`boot_request_upgrade()`.
+after repeated failures, and with `0x15` it is `-EPERM` for a refused
+downgrade, `-EBADMSG` for an image without a readable MCUboot header, or the
+`rc` of `boot_request_upgrade()`.
 
 Added in firmware 0.4.7. It is appended after the original six bytes rather than
 replacing anything, so a relay that reads six bytes keeps working unchanged;
@@ -200,6 +201,15 @@ CRC mismatch kept the node off the air indefinitely.
   stall, timeout or disconnect mid-transfer — BEGIN is refused for
   `HIVE_OTA_FAILURE_COOLDOWN_MS` (10 minutes), reported as `0x10` with errno
   `-EAGAIN`. A successful END resets the count.
+* **Downgrades are refused.** At END the node compares the uploaded image's
+  signed MCUboot header version with the running image's and refuses an older
+  one (`0x15`, errno `-EPERM`); an equal version is accepted, so a node can move
+  between the `-bringup` and `-lowpower` builds of one release. The header
+  version is part of the signed image, stamped from `src/hive_config.h` by
+  `firmware-nrf54lm20a/sysbuild.cmake` (before 0.7.0 every image carried
+  `0.0.0`), so it cannot be changed without re-signing. To roll a fleet back,
+  release the old code under a new, higher version. MCUboot's own revert of an
+  unconfirmed test image does not go through this check.
 * **END is the commit point.** Once STATUS reads `done`, the pending-upgrade
   marker is in flash and the next reset of any kind boots the new image, so
   ABORT is refused (`error` = `0x11`, state stays `done`) and the node reboots as
@@ -213,7 +223,11 @@ Confirmation is attempted at most once per boot so a persistent trailer-write
 failure cannot cause periodic flash writes indefinitely.
 
 To bound how long an unhealthy image can run before it rolls back, a test image
-arms a confirmation deadline at boot (`OTA_CONFIRM_DEADLINE_MS`, 120 s). If it has
+arms a confirmation deadline at boot (`OTA_CONFIRM_DEADLINE_MS`, 120 s). Since
+0.7.0 the deadline and the hardware watchdog are both armed at the very start of
+`main()`, before the regulator and Bluetooth initialisation they protect, so an
+image that hangs there is reset (and reverted) too. A test image whose watchdog
+failed to start is never confirmed. If it has
 not confirmed within that window — radio never came up, the main loop wedged in a
 sensor driver, or the trailer write kept failing — it reboots so MCUboot reverts
 to the previous image, rather than running unconfirmed until the next unrelated

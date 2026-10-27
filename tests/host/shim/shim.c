@@ -571,6 +571,7 @@ static size_t flash_written;
 static bool upgrade_pending;
 static unsigned int reboots;
 static const struct flash_area slot1 = { 0x80000, SHIM_SLOT_SIZE };
+static struct { bool valid; struct mcuboot_img_sem_ver ver; } bank[2];
 
 int flash_img_init(struct flash_img_context *ctx)
 {
@@ -615,6 +616,28 @@ int boot_request_upgrade(int permanent)
 	return 0;
 }
 
+int boot_read_bank_header(uint8_t area_id, struct mcuboot_img_header *header,
+			  size_t header_size)
+{
+	if (area_id > 1 || header_size < sizeof(*header)) {
+		return -EINVAL;
+	}
+	if (!bank[area_id].valid) {
+		return -EIO;
+	}
+	memset(header, 0, sizeof(*header));
+	header->mcuboot_version = 1;
+	header->h.v1.sem_ver = bank[area_id].ver;
+	return 0;
+}
+
+void shim_set_image_version(int slot, bool valid, uint8_t major, uint8_t minor,
+			    uint16_t revision)
+{
+	bank[slot].valid = valid;
+	bank[slot].ver = (struct mcuboot_img_sem_ver){ major, minor, revision, 0 };
+}
+
 void sys_reboot(int type)
 {
 	ARG_UNUSED(type);
@@ -637,6 +660,8 @@ void shim_flash_reset(void)
 	flash_written = 0;
 	upgrade_pending = false;
 	reboots = 0;
+	shim_set_image_version(0, true, 1, 0, 0);
+	shim_set_image_version(1, true, 1, 0, 0);
 }
 
 /* ── regulators ─────────────────────────────────────────────────────────── */

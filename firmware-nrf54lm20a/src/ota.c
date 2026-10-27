@@ -236,6 +236,58 @@ static ssize_t ctrl_begin(struct bt_conn *conn, const uint8_t *p, uint16_t len)
 	return len;
 }
 
+static int sem_ver_cmp(const struct mcuboot_img_sem_ver *a,
+		       const struct mcuboot_img_sem_ver *b)
+{
+	if (a->major != b->major) {
+		return a->major < b->major ? -1 : 1;
+	}
+	if (a->minor != b->minor) {
+		return a->minor < b->minor ? -1 : 1;
+	}
+	if (a->revision != b->revision) {
+		return a->revision < b->revision ? -1 : 1;
+	}
+	return 0;
+}
+
+/* Downgrade policy: refuse an image whose signed header version is older than
+ * the running image's. The version in the header is covered by the image
+ * signature, so a validly signed old release cannot be re-badged; a forged
+ * header only reaches MCUboot, which rejects its signature. Equal versions are
+ * accepted so a node can switch between the bring-up and low-power variants of
+ * one release. MCUboot's own test-swap rollback is unaffected: it reverts
+ * without going through this path. */
+static int check_image_version(void)
+{
+	struct mcuboot_img_header incoming, running;
+	int rc;
+
+	rc = boot_read_bank_header(FIXED_PARTITION_ID(slot1_partition), &incoming,
+				   sizeof(incoming));
+	if (rc != 0 || incoming.mcuboot_version != 1) {
+		printk("[OTA] uploaded image has no readable MCUboot header (%d)\n", rc);
+		return -EBADMSG;
+	}
+	rc = boot_read_bank_header(FIXED_PARTITION_ID(slot0_partition), &running,
+				   sizeof(running));
+	if (rc != 0 || running.mcuboot_version != 1) {
+		/* Not expected for an image MCUboot booted. Let the signature
+		 * check decide rather than make the node un-updatable. */
+		printk("[OTA] running image header unreadable (%d); skipping version check\n",
+		       rc);
+		return 0;
+	}
+	if (sem_ver_cmp(&incoming.h.v1.sem_ver, &running.h.v1.sem_ver) < 0) {
+		printk("[OTA] refusing downgrade %u.%u.%u -> %u.%u.%u\n",
+		       running.h.v1.sem_ver.major, running.h.v1.sem_ver.minor,
+		       running.h.v1.sem_ver.revision, incoming.h.v1.sem_ver.major,
+		       incoming.h.v1.sem_ver.minor, incoming.h.v1.sem_ver.revision);
+		return -EPERM;
+	}
+	return 0;
+}
+
 static ssize_t ctrl_end(uint16_t len)
 {
 	int rc;
@@ -260,6 +312,12 @@ static ssize_t ctrl_end(uint16_t len)
 		return len;
 	}
 	if (flash_img_bytes_written(&flash_ctx) != received) {
+		end_session(OTA_ERR_END);
+		return len;
+	}
+	rc = check_image_version();
+	if (rc) {
+		record_errno(rc);
 		end_session(OTA_ERR_END);
 		return len;
 	}

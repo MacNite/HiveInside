@@ -37,6 +37,10 @@ K_MUTEX_DEFINE(sensor_rail_lock);
 #if DT_NODE_EXISTS(DT_NODELABEL(power_en))
 static const struct device *const power_en =
 	DEVICE_DT_GET(DT_NODELABEL(power_en));
+/* Whether this file holds its one reference on power_en. Tracked apart from
+ * sensor_rail_enabled because the two regulators can fail independently: a
+ * gate that failed to switch off must not be enabled (and referenced) again. */
+static bool gate_held;
 #endif
 
 static int enable_regulator(const struct device *dev, const char *name)
@@ -104,6 +108,31 @@ static void release_init_reference(const struct device *dev)
 	}
 }
 
+#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
+static int gate_acquire(void)
+{
+	if (gate_held) {
+		return 0;
+	}
+	int err = enable_regulator(power_en, "sensor power gate");
+
+	if (err == 0) {
+		gate_held = true;
+	}
+	return err;
+}
+
+static void gate_release(void)
+{
+	if (gate_held && disable_regulator(power_en, "sensor power gate") == 0) {
+		gate_held = false;
+	}
+}
+#else
+static int gate_acquire(void) { return 0; }
+static void gate_release(void) { }
+#endif
+
 void power_init(void)
 {
 	/* The board DTS marks this regulator boot-on, but enabling it explicitly
@@ -114,13 +143,16 @@ void power_init(void)
 	 * where power_sensor_rail_disable() can reach zero. */
 #if DT_NODE_EXISTS(DT_NODELABEL(power_en))
 	release_init_reference(power_en);
-	if (enable_regulator(power_en, "sensor power gate") != 0) {
+#endif
+	if (gate_acquire() != 0) {
 		return;
 	}
-#endif
 
 	if (!device_is_ready(ldo1)) {
 		printk("[PWR] nPM1300 LDO1 not ready — sensor rail unmanaged\n");
+		/* main() drops the boot reference only for a rail that came up,
+		 * so a gate left on here would stay on for good. */
+		gate_release();
 		return;
 	}
 	release_init_reference(ldo1);
@@ -131,6 +163,7 @@ void power_init(void)
 		printk("[PWR] LDO1 set 3.3V failed (%d)\n", err);
 	}
 	if (enable_regulator(ldo1, "LDO1") != 0) {
+		gate_release();
 		return;
 	}
 	sensor_rail_enabled = true;
@@ -154,16 +187,17 @@ int power_sensor_rail_enable(void)
 
 	/* Upstream gate first, in the same order as power_init() and Seeed's
 	 * reference application: LDO1 alone does not power the island. */
-#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
-	err = enable_regulator(power_en, "sensor power gate");
+	err = gate_acquire();
 	if (err != 0) {
 		k_mutex_unlock(&sensor_rail_lock);
 		return err;
 	}
-#endif
 
 	err = enable_regulator(ldo1, "LDO1");
 	if (err != 0) {
+		/* Undo the gate, or every failed attempt would leave it on with
+		 * nobody holding the rail to switch it off again. */
+		gate_release();
 		k_mutex_unlock(&sensor_rail_lock);
 		return err;
 	}
@@ -199,16 +233,12 @@ int power_sensor_rail_disable(void)
 	}
 	sensor_rail_enabled = false;
 
-#if DT_NODE_EXISTS(DT_NODELABEL(power_en))
 	/* Then the upstream gate, so the sensor island is not left sitting in a
 	 * powered standby path for the ~99 % of each cycle that takes no
-	 * measurement. Reverse order of the enable above. */
-	err = disable_regulator(power_en, "sensor power gate");
-	if (err != 0) {
-		k_mutex_unlock(&sensor_rail_lock);
-		return err;
-	}
-#endif
+	 * measurement. Reverse order of the enable above. If it fails, gate_held
+	 * stays set: the next enable reuses that reference instead of taking a
+	 * second one, and the next disable tries again. */
+	gate_release();
 
 	k_mutex_unlock(&sensor_rail_lock);
 	return 0;
