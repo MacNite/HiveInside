@@ -65,7 +65,8 @@ value means the same thing across the ecosystem.
   rail (IMU + microphone) is switched off between the five-minute measurements.
 - **Authenticated on-request audio** (0.6.0+) — HiveHub can ask the node to
   record from inside the hive; it streams raw 16 kHz PCM16 over BLE with a
-  60-second privacy cap, an HMAC-authenticated START and an end-to-end CRC. The
+  60-second privacy cap, an HMAC-authenticated START, an end-to-end CRC and
+  (0.8.0+) an optional automatic recording level fixed per clip. The
   microphone stays off until an authenticated request owns the link, and a
   session can never overlap a measurement cycle or an OTA.
   See [`docs/audio-over-ble.md`](docs/audio-over-ble.md).

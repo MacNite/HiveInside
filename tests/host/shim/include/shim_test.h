@@ -40,6 +40,11 @@ struct shim_notify_stats {
 /* Totals for one (conn, attr) pair; conn NULL sums every connection. */
 struct shim_notify_stats shim_notify_stats(const struct bt_conn *conn,
 					   const struct bt_gatt_attr *attr);
+/* Called with every successful notification's payload, outside the shim's
+ * lock; NULL removes it. */
+typedef void (*shim_notify_observer_t)(const struct bt_gatt_attr *attr,
+				       const uint8_t *data, uint16_t len);
+void shim_set_notify_observer(shim_notify_observer_t fn);
 /* Notify calls made on a connection that was already gone. */
 unsigned int shim_notify_after_disconnect(void);
 unsigned int shim_disconnect_requests(void);

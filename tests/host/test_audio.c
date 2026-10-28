@@ -2,6 +2,8 @@
  * capture and TX worker threads running concurrently as on the device. */
 #include "shim_test.h"
 
+#include <stdlib.h>
+
 #include "link.c"
 #include "audio.c"
 
@@ -116,14 +118,14 @@ static void disconnect(void)
 	shim_conn_drop(conn);
 }
 
-static void send_start(uint16_t duration_ds, bool valid_mac)
+static void send_start_gain(uint16_t duration_ds, bool valid_mac, int8_t gain)
 {
 	uint8_t v[AUDIO_STATUS_LEN], req[14] = { 0x01 }, mac[32];
 	uint8_t msg[14];
 
 	read_status(v);
 	sys_put_le16(duration_ds, &req[1]);
-	req[3] = 0; req[4] = 0; req[5] = 0;
+	req[3] = 0; req[4] = 0; req[5] = (uint8_t)gain;
 	memcpy(msg, &v[2], 8);
 	memcpy(&msg[8], req, 6);
 	shim_hmac_sha256(hive_audio_psk, sizeof(hive_audio_psk), msg, sizeof(msg), mac);
@@ -134,6 +136,11 @@ static void send_start(uint16_t duration_ds, bool valid_mac)
 	CTRL->write(conn, CTRL, req, sizeof(req), 0, 0);
 }
 
+static void send_start(uint16_t duration_ds, bool valid_mac)
+{
+	send_start_gain(duration_ds, valid_mac, 0);
+}
+
 static void send_stop(void)
 {
 	uint8_t op = 0x02;
@@ -141,10 +148,54 @@ static void send_stop(void)
 	CTRL->write(conn, CTRL, &op, 1, 0, 0);
 }
 
-/* Every captured byte is either counted as sent or as dropped. */
+/* Every captured byte past the discarded warm-up blocks is either counted as
+ * sent or as dropped. */
 static void check_accounting(void)
 {
-	CHECK_EQ(status_u32(10) + status_u32(18), atomic_get(&mic_blocks) * BLOCK_BYTES);
+	uint32_t blocks = (uint32_t)atomic_get(&mic_blocks);
+	uint32_t kept = blocks > MIC_WARMUP_BLOCKS ? blocks - MIC_WARMUP_BLOCKS : 0;
+
+	CHECK_EQ(status_u32(10) + status_u32(18), kept * BLOCK_BYTES);
+}
+
+/* What the DATA notifications carried: the gain byte of every header and the
+ * PCM they delivered. */
+static atomic_t data_packets, gain_mismatch, pcm_peak, pcm_samples;
+static int8_t data_gain;
+static int64_t pcm_sum;
+
+static void observe_data(const struct bt_gatt_attr *attr, const uint8_t *data,
+			 uint16_t len)
+{
+	if (attr != DATA || len < 4) {
+		return;
+	}
+	if (__atomic_fetch_add(&data_packets, 1, __ATOMIC_SEQ_CST) == 0) {
+		data_gain = (int8_t)data[3];
+	} else if ((int8_t)data[3] != data_gain) {
+		__atomic_add_fetch(&gain_mismatch, 1, __ATOMIC_SEQ_CST);
+	}
+	for (uint16_t i = 4; i + 1 < len; i += 2) {
+		int32_t v = (int16_t)sys_get_le16(&data[i]);
+		int32_t mag = v < 0 ? -v : v;
+		if (mag > atomic_get(&pcm_peak)) {
+			atomic_set(&pcm_peak, mag);
+		}
+		pcm_sum += v;
+		__atomic_add_fetch(&pcm_samples, 1, __ATOMIC_SEQ_CST);
+	}
+}
+
+/* A 1 kHz tone of the given amplitude on a DC offset, plus an optional spike
+ * at a zero crossing. 1600 samples are exactly 100 periods, so the fake's
+ * repeated block is a continuous signal. */
+static void set_pdm_signal(int16_t dc, float amplitude, int16_t spike)
+{
+	for (size_t i = 0; i < MIC_BLOCK_SAMPLES; i++) {
+		float tone = amplitude * sinf(2.0f * 3.14159265f * (float)(i % 16) / 16.0f);
+		pdm_block[i] = (int16_t)(dc + lrintf(tone));
+	}
+	pdm_block[800] += spike;
 }
 
 /* The session has fully let go of the hardware and the link. */
@@ -163,6 +214,13 @@ static void setup(void)
 	shim_bt_reset();
 	atomic_set(&mic_blocks, 0);
 	atomic_set(&rail_enable_delay_ms, 0);
+	memset(pdm_block, 0, sizeof(pdm_block));
+	atomic_set(&data_packets, 0);
+	atomic_set(&gain_mismatch, 0);
+	atomic_set(&pcm_peak, 0);
+	atomic_set(&pcm_samples, 0);
+	data_gain = 0;
+	pcm_sum = 0;
 	connect(true);
 }
 
@@ -315,9 +373,102 @@ static void test_nonce_single_use(void)
 	CHECK(WAIT_FOR(session_released(), 3000));
 }
 
+/* Run one complete session and check what it delivered. */
+static void run_session(int8_t gain)
+{
+	send_start_gain(5, true, gain);  /* 500 ms */
+	CHECK(WAIT_FOR(status_state() == S_DONE, 3000));
+	CHECK(WAIT_FOR(session_released(), 1000));
+	check_accounting();
+	CHECK(atomic_get(&pcm_samples) > 0);
+	CHECK_EQ(atomic_get(&gain_mismatch), 0);
+}
+
+static uint8_t status_clipped_percent(void)
+{
+	uint8_t v[AUDIO_STATUS_LEN];
+
+	read_status(v);
+	return v[29];
+}
+
+/* Issue #78: the gain decision itself. */
+static void test_auto_gain_rule(void)
+{
+	CHECK_EQ(audio_auto_gain_db(0.0f, 0.0f), HIVE_AUDIO_GAIN_MAX_DB);
+	CHECK_EQ(audio_auto_gain_db(1.0f, 1.0f), 0);  /* never attenuates */
+	/* -50.5 dBFS RMS, -40 dBFS peak: the RMS target (+30.5 dB) wins,
+	 * rounded down. */
+	CHECK_EQ(audio_auto_gain_db(0.003f, 0.01f), 30);
+	/* -50.5 dBFS RMS, -10.5 dBFS peak: the peak ceiling (+7.5 dB) wins. */
+	CHECK_EQ(audio_auto_gain_db(0.003f, 0.3f), 7);
+	/* Very quiet: capped at the maximum. */
+	CHECK_EQ(audio_auto_gain_db(0.0001f, 0.0002f), HIVE_AUDIO_GAIN_MAX_DB);
+}
+
+/* Issue #78: a quiet hive on a DC offset is boosted to the target with one
+ * gain for the whole clip, the offset removed rather than amplified, and the
+ * gain reported in every DATA header. */
+static void test_auto_gain_quiet_hive(void)
+{
+	setup();
+	/* Amplitude 100: -53.3 dBFS RMS, -50.3 dBFS peak -> +33 dB. */
+	set_pdm_signal(500, 100.0f, 0);
+	run_session(HIVE_AUDIO_GAIN_AUTO);
+	CHECK_EQ(data_gain, 33);
+	/* 100 * 10^(33/20) = 4467. */
+	CHECK(atomic_get(&pcm_peak) > 4300 && atomic_get(&pcm_peak) < 4600);
+	/* Amplified by 33 dB, the offset alone would sit near 22 000. */
+	CHECK(llabs(pcm_sum / atomic_get(&pcm_samples)) < 50);
+	CHECK_EQ(status_clipped_percent(), 0);
+}
+
+/* Issue #78: a transient in the pre-roll limits the boost so it stays under
+ * the peak ceiling instead of clipping. */
+static void test_auto_gain_peak_ceiling(void)
+{
+	setup();
+	/* Peak ~16 000 (-6.2 dBFS) -> +3 dB, though the RMS alone wants +18. */
+	set_pdm_signal(0, 100.0f, 16000);
+	run_session(HIVE_AUDIO_GAIN_AUTO);
+	CHECK_EQ(data_gain, 3);
+	CHECK(atomic_get(&pcm_peak) < 32767);
+	CHECK_EQ(status_clipped_percent(), 0);
+}
+
+/* Issue #78: a loud input is passed through at 0 dB, not attenuated. */
+static void test_auto_gain_loud_input(void)
+{
+	setup();
+	set_pdm_signal(0, 20000.0f, 0);
+	run_session(HIVE_AUDIO_GAIN_AUTO);
+	CHECK_EQ(data_gain, 0);
+	CHECK_EQ(status_clipped_percent(), 0);
+}
+
+/* Issue #78: manual gains reach +40 dB, are clamped to the range, and are
+ * reported in the DATA header too. */
+static void test_manual_gain_range(void)
+{
+	setup();
+	set_pdm_signal(0, 100.0f, 0);
+	run_session(40);
+	CHECK_EQ(data_gain, 40);
+	CHECK(atomic_get(&pcm_peak) > 9500 && atomic_get(&pcm_peak) < 10500);
+
+	setup();
+	run_session(60);
+	CHECK_EQ(data_gain, HIVE_AUDIO_GAIN_MAX_DB);
+
+	setup();
+	run_session(-60);
+	CHECK_EQ(data_gain, HIVE_AUDIO_GAIN_MIN_DB);
+}
+
 int main(void)
 {
 	audio_init();
+	shim_set_notify_observer(observe_data);
 	RUN(test_complete_session);
 	RUN(test_stop_while_streaming);
 	RUN(test_stop_while_armed);
@@ -326,5 +477,10 @@ int main(void)
 	RUN(test_stalled_link);
 	RUN(test_unsubscribe_mid_stream);
 	RUN(test_nonce_single_use);
+	RUN(test_auto_gain_rule);
+	RUN(test_auto_gain_quiet_hive);
+	RUN(test_auto_gain_peak_ceiling);
+	RUN(test_auto_gain_loud_input);
+	RUN(test_manual_gain_range);
 	return shim_failures != 0;
 }
