@@ -48,6 +48,7 @@ static uint32_t bytes_sent, dropped_bytes, running_crc, clipped, samples;
 static uint16_t seq, duration_ds;
 static int8_t gain_db;
 static float gain_factor;
+static bool gain_auto;
 static int64_t started_ms, finished_ms, deadline_ms;
 static bool subscribed;
 /* The connection a session was started on. Its workers stop as soon as that
@@ -55,7 +56,13 @@ static bool subscribed;
 static uint32_t session_gen;
 static atomic_t session_active, stopping, capture_done, dropped_pending;
 #define AUDIO_RING_BLOCKS (HIVE_AUDIO_RING_BYTES / AUDIO_BLOCK_BYTES)
-static uint8_t audio_ring[AUDIO_RING_BLOCKS][AUDIO_BLOCK_BYTES];
+BUILD_ASSERT(HIVE_AUDIO_AGC_BLOCKS >= 1 &&
+	     HIVE_AUDIO_AGC_BLOCKS < AUDIO_RING_BLOCKS,
+	     "the auto-gain pre-roll must fit in the ring without overrunning it");
+BUILD_ASSERT(HIVE_AUDIO_GAIN_MIN_DB > INT8_MIN &&
+	     HIVE_AUDIO_GAIN_MAX_DB < HIVE_AUDIO_GAIN_AUTO,
+	     "manual gains must stay distinct from the auto-gain request");
+static uint8_t audio_ring[AUDIO_RING_BLOCKS][AUDIO_BLOCK_BYTES] __aligned(4);
 static uint16_t ring_head, ring_tail, ring_count, ring_offset;
 K_MUTEX_DEFINE(audio_ring_lock);
 /* Counters read by STATUS while the workers update them. */
@@ -203,7 +210,7 @@ static void sent_cb(struct bt_conn *conn, void *user_data)
 static int notify_data(struct bt_conn *conn, size_t pcm_len, uint8_t flags)
 {
 	sys_put_le16(seq, tx_buf);
-	tx_buf[2] = flags; tx_buf[3] = 0;
+	tx_buf[2] = flags; tx_buf[3] = (uint8_t)gain_db;
 	struct bt_gatt_notify_params params = {
 		.attr = &audio_service.attrs[AUDIO_ATTR_DATA], .data = tx_buf,
 		.len = pcm_len + AUDIO_HEADER_LEN, .func = sent_cb,
@@ -267,6 +274,55 @@ static void session_finish(uint8_t final_state, uint8_t fault)
 	link_release(LINK_OWNER_AUDIO);
 }
 
+static void set_gain(int8_t db)
+{
+	gain_db = db;
+	gain_factor = powf(10.0f, (float)db / 20.0f);
+}
+
+/* The one gain of an auto-gain clip, in whole dB, from the pre-roll's RMS and
+ * peak as fractions of full scale: the boost that brings the RMS to the target,
+ * unless the peak would pass the ceiling first. Rounded down so the ceiling
+ * holds; silence gets the maximum, and a loud hive is never attenuated. */
+static int8_t audio_auto_gain_db(float rms, float peak)
+{
+	float gain = (float)HIVE_AUDIO_GAIN_MAX_DB;
+
+	if (rms > 0.0f) {
+		gain = MIN(gain, HIVE_AUDIO_AGC_TARGET_DBFS - 20.0f * log10f(rms));
+	}
+	if (peak > 0.0f) {
+		gain = MIN(gain, HIVE_AUDIO_AGC_PEAK_CEIL_DBFS - 20.0f * log10f(peak));
+	}
+	return (int8_t)CLAMP(floorf(gain), 0.0f, (float)HIVE_AUDIO_GAIN_MAX_DB);
+}
+
+/* One-pole DC blocker, y[n] = x[n] - x[n-1] + a*y[n-1]. Primed with the first
+ * sample, so the PDM offset does not start the clip with a step. Only the
+ * capture thread touches its state. */
+#define DC_POLE (1.0f - 2.0f * 3.14159265f * HIVE_AUDIO_DC_CUTOFF_HZ / \
+		 (float)MIC_SAMPLE_RATE)
+static float dc_prev_in, dc_prev_out;
+static bool dc_primed;
+
+/* Filter n samples from in to out; out NULL only advances the filter. */
+static void dc_block(const int16_t *in, int16_t *out, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		float x = (float)in[i];
+		if (!dc_primed) {
+			dc_prev_in = x;
+			dc_primed = true;
+		}
+		float y = x - dc_prev_in + DC_POLE * dc_prev_out;
+		dc_prev_in = x;
+		dc_prev_out = y;
+		if (out != NULL) {
+			out[i] = (int16_t)CLAMP(lrintf(y), INT16_MIN, INT16_MAX);
+		}
+	}
+}
+
 static void capture_thread_fn(void *a, void *b, void *c)
 {
 	ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
@@ -289,10 +345,24 @@ static void capture_thread_fn(void *a, void *b, void *c)
 		}
 		set_state(AUDIO_STREAMING, 0);
 		k_sem_give(&audio_tx_start);
+		/* The first blocks carry the PDM filter's start-up transient: they
+		 * would sound as a pop and inflate the auto-gain peak. They still
+		 * run through the DC blocker so it has settled by the first kept
+		 * sample. */
+		uint32_t warmup = MIC_WARMUP_BLOCKS;
+		dc_primed = false;
+		dc_prev_out = 0.0f;
 		while (!atomic_get(&stopping) && session_link_alive() &&
 		       k_uptime_get() < deadline_ms) {
 			void *block; uint32_t size;
 			if (mic_stream_read(&block, &size, 250) != 0) continue;
+			size_t n = MIN(size, AUDIO_BLOCK_BYTES) / sizeof(int16_t);
+			if (warmup > 0) {
+				warmup--;
+				dc_block(block, NULL, n);
+				mic_stream_release(block);
+				continue;
+			}
 			k_mutex_lock(&audio_ring_lock, K_FOREVER);
 			if (ring_count == AUDIO_RING_BLOCKS) {
 				/* Discard exactly one capture block. Dropping a byte range
@@ -306,7 +376,7 @@ static void capture_thread_fn(void *a, void *b, void *c)
 				ring_offset = 0;
 				atomic_set(&dropped_pending, 1);
 			}
-			memcpy(audio_ring[ring_head], block, MIN(size, AUDIO_BLOCK_BYTES));
+			dc_block(block, (int16_t *)audio_ring[ring_head], n);
 			ring_head = (ring_head + 1U) % AUDIO_RING_BLOCKS;
 			ring_count++;
 			k_mutex_unlock(&audio_ring_lock);
@@ -375,12 +445,61 @@ static uint32_t ring_unsent(void)
 	return unsent;
 }
 
+/* For an auto-gain clip, hold the first notification until the pre-roll is
+ * buffered (or capture has ended early), then fix the clip's gain from it.
+ * Nothing has been sent yet, so the whole clip carries the one gain. Returns
+ * 0, or AUDIO_ERR_STALLED if the session's connection went away. */
+static uint8_t settle_auto_gain(void)
+{
+	for (;;) {
+		if (!session_link_alive()) {
+			return AUDIO_ERR_STALLED;
+		}
+		k_mutex_lock(&audio_ring_lock, K_FOREVER);
+		bool ready = ring_count >= HIVE_AUDIO_AGC_BLOCKS;
+		k_mutex_unlock(&audio_ring_lock);
+		if (ready || atomic_get(&capture_done)) {
+			break;
+		}
+		(void)k_sem_take(&audio_data_ready, K_MSEC(100));
+	}
+
+	uint64_t sum_sq = 0;
+	int32_t peak = 0;
+	uint32_t n = 0;
+	k_mutex_lock(&audio_ring_lock, K_FOREVER);
+	for (uint16_t b = 0; b < ring_count; b++) {
+		const int16_t *pcm = (const int16_t *)
+			audio_ring[(ring_tail + b) % AUDIO_RING_BLOCKS];
+		for (size_t i = 0; i < MIC_BLOCK_SAMPLES; i++) {
+			int32_t v = pcm[i];
+			sum_sq += (uint64_t)(v * v);
+			peak = MAX(peak, v < 0 ? -v : v);
+		}
+		n += MIC_BLOCK_SAMPLES;
+	}
+	k_mutex_unlock(&audio_ring_lock);
+
+	float rms = n ? sqrtf((float)sum_sq / (float)n) / 32768.0f : 0.0f;
+	set_gain(audio_auto_gain_db(rms, (float)peak / 32768.0f));
+	printk("[AUDIO] auto gain %+d dB (pre-roll rms %.1f dBFS, peak %d)\n",
+	       gain_db, (double)(rms > 0.0f ? 20.0f * log10f(rms) : -200.0f),
+	       (int)peak);
+	return 0;
+}
+
 /* Stream the ring until capture has finished and the ring is drained.
  * Returns 0, or the fault that abandoned the session: the session's
  * connection went away, the link stopped returning credits, or a notification
  * was refused. Every wait in here is bounded. */
 static uint8_t stream_session(void)
 {
+	if (gain_auto) {
+		uint8_t fault = settle_auto_gain();
+		if (fault != 0) {
+			return fault;
+		}
+	}
 	for (;;) {
 		if (!session_link_alive()) {
 			return AUDIO_ERR_STALLED;
@@ -497,8 +616,9 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	session_gen = link_generation();
 	atomic_set(&session_active, 1);
 	duration_ds = sys_get_le16(&p[1]); format = p[4];
-	gain_db = CLAMP((int8_t)p[5], -20, 20);
-	gain_factor = powf(10.0f, (float)gain_db / 20.0f);
+	gain_auto = (int8_t)p[5] == HIVE_AUDIO_GAIN_AUTO;
+	set_gain(gain_auto ? 0 : CLAMP((int8_t)p[5], HIVE_AUDIO_GAIN_MIN_DB,
+				       HIVE_AUDIO_GAIN_MAX_DB));
 	k_spinlock_key_t key = k_spin_lock(&stats_lock);
 	bytes_sent = dropped_bytes = running_crc = clipped = samples = 0;
 	started_ms = k_uptime_get();

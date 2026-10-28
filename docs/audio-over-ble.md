@@ -28,7 +28,9 @@ All UUIDs end in `-7a1c-4b9e-9a2f-1d6e0b9c1a01`.
 | STATUS | `8e8b0023` | read, notify | 30-byte session record |
 
 Subscribe to DATA before START. A DATA notification is `seq(2 LE), flags(1),
-reserved(1), PCM16`. The PCM portion is `min(MTU-3-4, 240)` bytes, rounded down
+gain_db(1), PCM16`. `gain_db` is the signed gain, in dB, applied to the PCM in
+this packet. It is the same for every packet of a clip, including the final
+one (0.8.0+; earlier firmware sends 0 here). The PCM portion is `min(MTU-3-4, 240)` bytes, rounded down
 to an even length. Sequence numbers are free-running unsigned 16-bit values.
 Flag bit 0 marks the final, header-only packet. Bit 1 says whole audio blocks
 were dropped immediately before this packet; do not splice across that hole.
@@ -43,7 +45,9 @@ CTRL commands are:
 `duration_ds=0` means live/open-ended. Every session still stops at 60 seconds.
 The only rate code is 0 (16 kHz); the only implemented format is 0 (PCM16 LE
 mono). Format 1 is reserved for ADPCM and returns unsupported-format. Gain is a
-signed byte clamped to -20..+20 dB, applied before transmission with saturation.
+signed byte in dB, clamped to -20..+40 dB (0.8.0+; -20..+20 dB before) and
+applied before transmission with saturation. `0x7F` requests automatic gain;
+see [Recording level](#recording-level).
 
 STATUS is always exactly 30 bytes:
 
@@ -67,6 +71,43 @@ Errors are bad parameters `10`, authentication `11`, busy `12`, microphone
 A refused CTRL write sets the error byte but never the state: a duplicate or
 malformed START during a session leaves it ARMED or STREAMING, and STOP still
 ends it.
+
+## Recording level
+
+*Firmware **0.8.0** or later.*
+
+The microphone has far more headroom than a hive needs: a laptop speaker at full
+volume 10 cm away does not clip it, so at 0 dB a hive recording comes out very
+quiet ([#78](https://github.com/MacNite/HiveInside/issues/78)). Send
+`gain_db = 0x7F` in START and the node picks the gain itself:
+
+1. Capture starts as usual. The first 200 ms (two blocks) carry the PDM filter's
+   start-up transient and are discarded instead of being streamed (for every
+   stream, manual gain included).
+2. The node buffers the next 500 ms, measures its RMS and peak, and picks one gain
+   in whole dB. That gain brings the RMS up to **-20 dBFS**, but stops before the
+   peak passes **-3 dBFS**. It is never below 0 dB and never above +40 dB.
+3. The whole clip, including the buffered pre-roll, streams with that one gain.
+   Every DATA header carries it.
+
+The gain stays fixed for the clip, so it never "pumps" like a phone call's AGC.
+Levels inside a clip stay comparable, and dividing by `10^(gain_db/20)` gives
+back the 0 dB level for comparing clips. The warm-up and the pre-roll together
+delay the first DATA packet by about 0.7 s. Nothing is lost: the 1 s ring holds
+the pre-roll, and the link drains it at about four times real time. A loud burst after the pre-roll
+can still clip. STATUS byte 29 reports the clipped percentage as before.
+
+Every stream, manual or automatic, also passes a 10 Hz DC-blocking high-pass
+first. The PDM output carries a DC offset. A gain applied to that offset clips
+one side of the waveform long before the sound itself is loud. 10 Hz is below
+anything the MEMS microphone reproduces.
+
+The targets are `HIVE_AUDIO_AGC_TARGET_DBFS`, `HIVE_AUDIO_AGC_PEAK_CEIL_DBFS`,
+`HIVE_AUDIO_GAIN_MAX_DB` and `HIVE_AUDIO_AGC_BLOCKS` in `src/hive_config.h`.
+
+Firmware older than 0.8.0 reads `0x7F` as +127 dB and clamps it to +20 dB. A hub
+that always sends `0x7F` therefore gets a usable recording from older nodes too.
+The DATA header byte is 0 on those nodes, whatever the gain.
 
 ## Authentication and client sequence
 
@@ -201,6 +242,8 @@ planned together with HiveHub bonding support (see [SECURITY.md](../SECURITY.md)
   not the other), reread the rotated nonce, and ensure the signed gain byte and
   little-endian duration are included exactly once.
 * **Error 16:** request format 0; ADPCM is only a reserved wire value.
+* **Very quiet recording:** the client sent gain 0. Send `0x7F` for automatic
+  gain (0.8.0+), or a fixed gain of up to +40 dB.
 * **Short packets:** negotiate ATT MTU 247; smaller MTUs are valid and reduce PCM
   per notification while preserving sample boundaries.
 * **Holes or CRC mismatch:** inspect sequence numbers, DATA flag bit 1, final

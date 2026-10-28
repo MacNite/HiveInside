@@ -42,7 +42,7 @@
  * stamped artifact name disagree with the bytes on the air. Bump it here.
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
-#define HIVEINSIDE_FW_VERSION_MINOR 7
+#define HIVEINSIDE_FW_VERSION_MINOR 8
 #define HIVEINSIDE_FW_VERSION_PATCH 0
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
@@ -167,6 +167,36 @@
  * avoids losing roughly two thirds of notification throughput. */
 #ifndef HIVE_AUDIO_CONN_INTERVAL_UNITS
 #define HIVE_AUDIO_CONN_INTERVAL_UNITS 12U
+#endif
+/* Recording level (issue #78). START's gain byte is a signed dB value, or
+ * HIVE_AUDIO_GAIN_AUTO to let the node choose. Auto gain measures the first
+ * HIVE_AUDIO_AGC_BLOCKS capture blocks (100 ms each) and picks one gain for the
+ * whole clip: enough to bring the RMS level to the target, but never so much
+ * that the measured peak passes the ceiling, and never below 0 dB. A fixed gain
+ * keeps levels comparable within a clip, and the gain travels in every DATA
+ * header so the analysis can undo it. The microphone's own noise floor sits
+ * well above 16-bit quantization, so +40 dB adds hiss, not lost resolution. */
+#define HIVE_AUDIO_GAIN_AUTO 0x7F
+#ifndef HIVE_AUDIO_GAIN_MIN_DB
+#define HIVE_AUDIO_GAIN_MIN_DB (-20)
+#endif
+#ifndef HIVE_AUDIO_GAIN_MAX_DB
+#define HIVE_AUDIO_GAIN_MAX_DB 40
+#endif
+#ifndef HIVE_AUDIO_AGC_TARGET_DBFS
+#define HIVE_AUDIO_AGC_TARGET_DBFS (-20.0f)
+#endif
+#ifndef HIVE_AUDIO_AGC_PEAK_CEIL_DBFS
+#define HIVE_AUDIO_AGC_PEAK_CEIL_DBFS (-3.0f)
+#endif
+#ifndef HIVE_AUDIO_AGC_BLOCKS
+#define HIVE_AUDIO_AGC_BLOCKS 5U
+#endif
+/* Corner of the DC-blocking high-pass applied to streamed PCM. The PDM output
+ * carries an offset that a gain would otherwise push into one-sided clipping;
+ * 10 Hz is below anything the MEMS microphone reproduces. */
+#ifndef HIVE_AUDIO_DC_CUTOFF_HZ
+#define HIVE_AUDIO_DC_CUTOFF_HZ 10.0f
 #endif
 /* Audio needs time to read its nonce before START, but an unclaimed connection
  * still removes the node from advertising and therefore remains bounded. */

@@ -429,6 +429,13 @@ void shim_force_notify_result(int rc)
 	pthread_mutex_unlock(&bt_lock);
 }
 
+static shim_notify_observer_t notify_observer;
+
+void shim_set_notify_observer(shim_notify_observer_t fn)
+{
+	__atomic_store_n(&notify_observer, fn, __ATOMIC_SEQ_CST);
+}
+
 static int notify(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		  const void *data, uint16_t len, bt_gatt_complete_func_t func,
 		  void *user_data)
@@ -461,6 +468,8 @@ static int notify(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	s->last_len = MIN(len, (uint16_t)sizeof(s->last));
 	memcpy(s->last, data, s->last_len);
 	complete_now = completion_mode == SHIM_COMPLETE_NOW;
+	shim_notify_observer_t observer =
+		__atomic_load_n(&notify_observer, __ATOMIC_SEQ_CST);
 	if (func != NULL && !complete_now) {
 		if (held_count == MAX_HELD) {
 			abort();
@@ -471,6 +480,9 @@ static int notify(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 		held_count++;
 	}
 	pthread_mutex_unlock(&bt_lock);
+	if (observer != NULL) {
+		observer(attr, data, len);
+	}
 	if (func != NULL && complete_now) {
 		func(conn, user_data);
 	}
