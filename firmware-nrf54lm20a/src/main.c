@@ -176,28 +176,13 @@ int main(void)
 	printk("\n[HiveInside] %s fw %s | USB + HiveHub BLE beacon\n",
 	       HIVEINSIDE_BOARD, HIVEINSIDE_FW_VERSION);
 
-	power_init();
-	measurement_led_init();
-	beacon_err = beacon_init();
-	ota_init();
-	audio_init();
-	/* Armed after the one-time initialisation above, which is not covered by
-	 * the watchdog: a hang in a driver's init would leave the node dark rather
-	 * than reset-looping, and MCUboot's own rollback deadline below is the
-	 * safety net for an image that cannot get this far. */
+	/* Both recovery mechanisms are armed before any initializer that could
+	 * hang. A regulator or Bluetooth init that never returns would otherwise
+	 * leave the node dark until someone power-cycles it, and an unconfirmed
+	 * test image could not reach the reset MCUboot needs to revert it. The
+	 * watchdog's timeout is far longer than the whole init sequence. */
 	hive_watchdog_init();
-	/* power_init() owns the boot-time rail reference; normal users take their
-	 * own references below. */
-	(void)power_sensor_rail_disable();
 	confirmation_pending = !boot_is_img_confirmed();
-	/* Do not confirm a test image merely because main() was reached. Wait until
-	 * one complete sensor cycle has run and Bluetooth has successfully published
-	 * it; otherwise a regression in either path must remain eligible for MCUboot
-	 * rollback on the next reset. */
-	if (confirmation_pending && beacon_err != 0) {
-		printk("[OTA] image left unconfirmed: Bluetooth init failed (%d)\n",
-		       beacon_err);
-	}
 	/* Arm the rollback deadline only for a genuine test swap (a previous image
 	 * is staged for revert). A directly SWD-flashed image reports swap type
 	 * NONE and has no rollback target, so it is never armed and cannot boot
@@ -205,6 +190,28 @@ int main(void)
 	if (confirmation_pending && mcuboot_swap_type() == BOOT_SWAP_TYPE_REVERT) {
 		k_timer_start(&ota_confirm_deadline, K_MSEC(OTA_CONFIRM_DEADLINE_MS),
 			      K_NO_WAIT);
+	}
+
+	power_init();
+	measurement_led_init();
+	beacon_err = beacon_init();
+	ota_init();
+	audio_init();
+	/* power_init() owns the boot-time rail reference; normal users take their
+	 * own references below. */
+	(void)power_sensor_rail_disable();
+	/* Do not confirm a test image merely because main() was reached. Wait until
+	 * one complete sensor cycle has run and Bluetooth has successfully published
+	 * it; otherwise a regression in either path must remain eligible for MCUboot
+	 * rollback on the next reset. An image whose watchdog did not start has
+	 * lost the safety net for every later hang, so it is not confirmed either:
+	 * reverting to the image that had one is the safer outcome. */
+	if (confirmation_pending && beacon_err != 0) {
+		printk("[OTA] image left unconfirmed: Bluetooth init failed (%d)\n",
+		       beacon_err);
+	}
+	if (confirmation_pending && !hive_watchdog_active()) {
+		printk("[OTA] image left unconfirmed: watchdog did not start\n");
 	}
 
 	while (true) {
@@ -237,7 +244,7 @@ int main(void)
 		if (beacon_publish(&m) == 0) {
 			measurement_led_blink();
 			if (confirmation_pending && !confirmation_attempted &&
-			    !link_is_busy()) {
+			    hive_watchdog_active() && !link_is_busy()) {
 				/* Make at most one trailer-write attempt per boot. A persistent
 				 * flash error must not cause periodic writes for the lifetime of
 				 * the device; leaving the image unconfirmed preserves rollback. */

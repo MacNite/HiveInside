@@ -116,10 +116,14 @@ The console will print, at boot:
 If that line is missing, the fragment did not take and everything below will
 measure a device that has no throughput service.
 
+The spike also identifies itself without a console: it advertises as
+`HiveInside-TP-XXXX` instead of `HiveInside-XXXX`, and its OTA payload is named
+`…-spike.signed.bin`. The release workflow refuses to package it.
+
 ### 2. Laptop first (cheap sanity check)
 
 ```sh
-pip install bleak
+pip install -r tools/throughput/requirements.txt
 tools/throughput/ble_throughput.py --duration 15 --payload 244 --interval 12
 ```
 
@@ -187,13 +191,14 @@ before blaming the design.
   range make the node transmit continuously, which is both a battery and a
   privacy problem. It is a bench build, on the bench, with a console.
 - The measurement holds the connection for its whole duration, and a connected
-  node neither advertises nor samples (`ota_is_active()` gates the sensor loop
-  in `main.c`), so the hub will see nothing from that hive while a run is going.
+  node neither advertises nor samples (the session gate in `link.c` holds off
+  the sensor loop in `main.c`), so the hub will see nothing from that hive while
+  a run is going.
   That is expected, and it is also a useful preview of the off-air cost a real
   recording will have.
-- `ota_release_arm_timeout()` exists only for this spike: `ota.c` otherwise drops
-  any central that has not sent BEGIN within six seconds, which would cut every
-  run short. It is compiled out of normal builds.
+- A START claims the link (`link_claim(LINK_OWNER_THROUGHPUT)`), which cancels
+  the 10-second arm timeout that otherwise drops a central that has claimed no
+  service; releasing the claim at the end of a run re-arms it.
 
 ## Removing it
 

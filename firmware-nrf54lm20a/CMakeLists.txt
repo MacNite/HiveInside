@@ -53,37 +53,15 @@ target_sources(app PRIVATE
 # like the other build. Copy the signed image next to itself under a name that
 # carries the firmware version and the variant.
 
-set(hive_config_header ${CMAKE_CURRENT_SOURCE_DIR}/src/hive_config.h)
-set_property(DIRECTORY APPEND
-  PROPERTY CMAKE_CONFIGURE_DEPENDS ${hive_config_header})
-
-file(READ ${hive_config_header} hive_config_contents)
-
-# Read the same MAJOR/MINOR/PATCH numbers beacon.c advertises, not the derived
+# The same MAJOR/MINOR/PATCH numbers beacon.c advertises, not the derived
 # HIVEINSIDE_FW_VERSION string. Those bytes are what the backend sees, so an
-# artifact named v0.4.3 is only honest if it advertises 0.4.3.
-set(hive_fw_version "")
-foreach(component MAJOR MINOR PATCH)
-  string(REGEX MATCH
-    "define[ \t]+HIVEINSIDE_FW_VERSION_${component}[ \t]+([0-9]+)"
-    hive_component_matched "${hive_config_contents}")
-  if(hive_component_matched)
-    list(APPEND hive_version_parts "${CMAKE_MATCH_1}")
-  endif()
-endforeach()
-list(LENGTH hive_version_parts hive_version_part_count)
-if(hive_version_part_count EQUAL 3)
-  list(JOIN hive_version_parts "." hive_fw_version)
-endif()
-
-string(REGEX MATCH
-  "define[ \t]+HIVEINSIDE_BOARD[ \t]+\"([A-Za-z0-9_]+)\""
-  hive_board_matched "${hive_config_contents}")
-if(hive_board_matched)
-  set(hive_board "${CMAKE_MATCH_1}")
-else()
-  set(hive_board "")
-endif()
+# artifact named v0.4.3 is only honest if it advertises 0.4.3. sysbuild.cmake
+# reads them the same way to stamp the signed image header.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/hive_version.cmake)
+hive_read_identity(${CMAKE_CURRENT_SOURCE_DIR}/src/hive_config.h
+  hive_fw_version hive_board)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/hive_config.h)
 
 # CONFIG_SERIAL is the honest discriminator. It is exactly what low-power.conf
 # turns off, and it describes what the image *is* rather than how the build was
@@ -94,11 +72,21 @@ if(CONFIG_SERIAL)
 else()
   set(hive_image_variant "lowpower")
 endif()
+# A build that changes the firmware through compiler macros is not the image
+# its CONFIG_SERIAL alone suggests. The throughput spike gets a name of its own;
+# any other macro override is marked as custom, so neither can be mistaken for
+# a release payload once it leaves its build directory. release.yml also
+# refuses the spike outright.
+if(CONFIG_COMPILER_OPT MATCHES "ENABLE_THROUGHPUT_SPIKE=1")
+  set(hive_image_variant "spike")
+elseif(NOT "${CONFIG_COMPILER_OPT}" STREQUAL "")
+  string(APPEND hive_image_variant "-custom")
+endif()
 
 if(NOT hive_fw_version OR NOT hive_board)
   message(WARNING
     "HiveInside: could not read HIVEINSIDE_FW_VERSION/HIVEINSIDE_BOARD from "
-    "${hive_config_header}; skipping the version-stamped OTA payload.")
+    "src/hive_config.h; skipping the version-stamped OTA payload.")
 elseif(CONFIG_BOOTLOADER_MCUBOOT AND TARGET zephyr_final)
   set(hive_payload_name
     "hiveinside-${hive_board}-v${hive_fw_version}-${hive_image_variant}.signed.bin")

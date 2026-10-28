@@ -15,7 +15,7 @@ if the laptop sees 30 kB/s and the ESP32 sees 3, the limit is the relay's
 controller or WiFi coexistence.
 
 Usage:
-    pip install bleak
+    pip install -r tools/throughput/requirements.txt
     ./ble_throughput.py                       # find the first HiveInside node
     ./ble_throughput.py --address AA:BB:..    # or name one
     ./ble_throughput.py --duration 20 --payload 244 --interval 12
@@ -192,14 +192,18 @@ def main() -> int:
     ap.add_argument("--payload", type=int, default=244,
                     help="notification payload in bytes (20-244)")
     ap.add_argument("--interval", type=int, default=0,
-                    help="connection interval in 1.25 ms units; 0 leaves it alone "
-                         "(12 = 15 ms, 24 = 30 ms)")
+                    help="connection interval in 1.25 ms units, 6-255; 0 leaves "
+                         "it alone (12 = 15 ms, 24 = 30 ms)")
     args = ap.parse_args()
 
     if not 1 <= args.duration <= 60:
         ap.error("--duration must be between 1 and 60")
     if not 20 <= args.payload <= 244:
         ap.error("--payload must be between 20 and 244")
+    # One byte on the wire, and the BLE minimum is 6 units (7.5 ms). Every
+    # value up to 255 (318.75 ms) fits the firmware's 2 s supervision timeout.
+    if args.interval != 0 and not 6 <= args.interval <= 255:
+        ap.error("--interval must be 0 (leave unchanged) or between 6 and 255")
 
     try:
         return asyncio.run(run(args))

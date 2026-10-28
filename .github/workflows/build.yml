@@ -5,11 +5,40 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # The firmware's protocol, lifecycle and DSP code, compiled for the build
+  # machine against the Zephyr stand-ins in tests/host/shim and run under
+  # AddressSanitizer and UndefinedBehaviorSanitizer. Seconds, not minutes, and
+  # independent of the Zephyr workspace the firmware jobs below set up.
+  host-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Build and run the host regression tests
+        run: |
+          set -eux
+          # Recent runner kernels randomise mmap addresses beyond what
+          # AddressSanitizer's shadow layout accepts; 28 bits is its limit.
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          cmake -S tests/host -B build-host
+          cmake --build build-host --parallel
+          ctest --test-dir build-host --output-on-failure
+
+      - name: Check relative links in the documentation
+        run: python3 tools/ci/check_md_links.py
+
   # Build both configurations the way docs/vscode-build.md describes them: a
   # real `west --sysbuild` build producing MCUboot + the signed application,
   # against the upstream Zephyr revision pinned in west.yml.
@@ -37,9 +66,10 @@ jobs:
               -DEXTRA_DTC_OVERLAY_FILE=low-power.overlay
     name: build (${{ matrix.config }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: hiveinside
+          persist-credentials: false
 
       - name: Verify the west-only source tree
         working-directory: hiveinside
@@ -69,7 +99,7 @@ jobs:
           grep -Eq '^[[:space:]]*lfclk[[:space:]]*\{' "$overlay"
           grep -Eq '^[[:space:]]*xo24m[[:space:]]*\{' "$overlay"
 
-      - uses: zephyrproject-rtos/action-zephyr-setup@v1
+      - uses: zephyrproject-rtos/action-zephyr-setup@be8136a8bba01580485d98b7ad2d32477c36a49a # v1.0.15
         with:
           app-path: hiveinside
           toolchains: arm-zephyr-eabi
@@ -104,11 +134,30 @@ jobs:
           out="${{ matrix.config }}/firmware-nrf54lm20a/zephyr"
           ls -l "$out"/hiveinside-nrf54lm20a-v*-${{ matrix.variant }}.signed.bin
 
+      - name: Check the bootloader key checker against the development key
+        working-directory: hiveinside
+        run: |
+          set -eux
+          # CI builds without a deployment key, so MCUboot embeds the public
+          # development key. release.yml relies on this checker to refuse
+          # exactly that bootloader; exercise it here so a change to the
+          # checker or to imgtool cannot first fail on release day.
+          mcuboot=$(west topdir)/bootloader/mcuboot
+          if python3 tools/release/check_bootloader_key.py \
+              --imgtool "$mcuboot/scripts" --dev-keys "$mcuboot" \
+              "${{ matrix.config }}/mcuboot/zephyr/zephyr.bin"; then
+            echo "checker did not flag the development-key bootloader" >&2
+            exit 1
+          fi
+          python3 tools/release/check_bootloader_key.py \
+            --imgtool "$mcuboot/scripts" --key "$mcuboot/root-rsa-2048.pem" \
+            "${{ matrix.config }}/mcuboot/zephyr/zephyr.bin"
+
       # Keep the images around so a change can be tried on hardware before it
       # is tagged. Releases are built and published by release.yml; these are
       # the same files without the manifest, checksums and flashing bundle.
       - name: Keep the images for testers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: images-${{ matrix.variant }}
           path: |

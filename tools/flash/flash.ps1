@@ -120,14 +120,19 @@ try {
     $cfg = Join-Path $workdir.FullName 'board.cfg'
     Set-Content -LiteralPath $cfg -Value $cfgText -NoNewline
 
-    # OpenOCD passes the file name through Tcl, which splits on whitespace.
-    if ($Image -match '\s') {
-        $copy = Join-Path $workdir.FullName 'image.hex'
-        Copy-Item -LiteralPath $Image -Destination $copy
-        $Image = $copy
+    # OpenOCD evaluates every -c argument as a Tcl script, where spaces,
+    # brackets, dollar signs, semicolons and braces in a file name all mean
+    # something. Flash a copy with a name this script chose, use forward
+    # slashes (a backslash is Tcl's escape), and pass the path as one braced,
+    # literal word. Only a brace in the temporary directory itself could still
+    # break that.
+    $copy = Join-Path $workdir.FullName 'image.hex'
+    Copy-Item -LiteralPath $Image -Destination $copy
+    $tclPath = $copy -replace '\\', '/'
+    if ($tclPath -match '[{}]') {
+        Die "Temporary directory $($workdir.FullName) contains a brace; set TEMP to a plain directory."
     }
-    # Tcl also treats a backslash as an escape.
-    $tclImage = $Image -replace '\\', '/'
+    $tclImage = '{' + $tclPath + '}'
 
     $openocdArgs = @(
         '-f', $cfg,

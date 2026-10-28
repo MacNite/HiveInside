@@ -115,6 +115,13 @@ so without it a field failure can only ever say "flash write failed", which does
 not distinguish a slot that is too small (`-EINVAL`) from a radio timeslot that
 never arrived (`-ETIMEDOUT`).
 
+Since 0.7.0 the byte also explains errors that are not flash operations: with
+`0x11` it is `-ETIMEDOUT` for the 30-second stall timeout and `-ETIME` for the
+ten-minute session timeout, with `0x10` it is `-EAGAIN` while BEGIN is refused
+after repeated failures, and with `0x15` it is `-EPERM` for a refused
+downgrade, `-EBADMSG` for an image without a readable MCUboot header, or the
+`rc` of `boot_request_upgrade()`.
+
 Added in firmware 0.4.7. It is appended after the original six bytes rather than
 replacing anything, so a relay that reads six bytes keeps working unchanged;
 HiveHub reads whatever length the device returns and treats a missing seventh
@@ -149,10 +156,11 @@ HiveScale cannot brick the sensor.
 The nRF54 advertises continuously with legacy connectable/scannable `ADV_IND`
 at the same interval used by the former `ADV_SCAN_IND` beacon. Its primary
 manufacturer payload and name+identity scan response are unchanged. A connection
-which does not send BEGIN within six seconds is disconnected, a transfer that
-goes `HIVE_OTA_STALL_TIMEOUT_MS` (30 s) without a single DATA write is
-abandoned, and a short link supervision timeout releases a vanished central.
-`ota_is_active()` gates the sensor loop while connected or transferring.
+which does not send BEGIN within ten seconds (`HIVE_LINK_ARM_TIMEOUT_MS`) is
+disconnected, a transfer that goes `HIVE_OTA_STALL_TIMEOUT_MS` (30 s) without a
+single DATA write is abandoned, and a short link supervision timeout releases a
+vanished central. The shared link gate in `link.c` holds off the sensor loop
+while a central is connected or a transfer is running.
 
 ## Safety and lifecycle
 
@@ -172,12 +180,41 @@ Every state that gates the sensor loop is bounded, which matters because a
 gated node is off the air entirely: it takes no measurements, and because it is
 connected it is not advertising either, so HiveHub sees nothing at all. The
 watchdog cannot rescue it — the OTA path feeds the watchdog deliberately, since
-a real upload takes minutes. The bounds are: six seconds connected without
+a real upload takes minutes. The bounds are: ten seconds connected without
 BEGIN (arm timeout), thirty seconds receiving without a DATA write (stall
-timeout), and 1.5 seconds in `done` before the reboot fires. A transfer that is
-slow but still progressing is never cut short, and it cannot run forever either:
-`received` is capped at the size declared in BEGIN, after which any further DATA
-write is rejected.
+timeout), ten minutes for the whole transfer (`HIVE_OTA_SESSION_TIMEOUT_MS`),
+and 1.5 seconds in `done` before the reboot fires. `received` is capped at the
+size declared in BEGIN, after which any further DATA write is rejected.
+
+Every error ends the transfer the same way: the node reports the error in
+STATUS, stops the transfer's timers and releases the link, which re-arms the
+ten-second arm timeout. The relay can read STATUS and send a fresh BEGIN in that
+window; otherwise it is disconnected. Until 0.7.0 an error left the transfer
+holding the link with no timer running, so a relay that stayed connected after a
+CRC mismatch kept the node off the air indefinitely.
+
+* A duplicate BEGIN during a transfer is refused (`error` = `0x10`) without
+  touching the transfer in progress; send ABORT first to restart.
+* DATA writes still queued behind a failed transfer are rejected without
+  overwriting the error that ended it.
+* After `HIVE_OTA_MAX_FAILED_SESSIONS` (3) failed transfers in a row — any error,
+  stall, timeout or disconnect mid-transfer — BEGIN is refused for
+  `HIVE_OTA_FAILURE_COOLDOWN_MS` (10 minutes), reported as `0x10` with errno
+  `-EAGAIN`. A successful END resets the count.
+* **Downgrades are refused.** At END the node compares the uploaded image's
+  signed MCUboot header version with the running image's and refuses an older
+  one (`0x15`, errno `-EPERM`); an equal version is accepted, so a node can move
+  between the `-bringup` and `-lowpower` builds of one release. The header
+  version is part of the signed image, stamped from `src/hive_config.h` by
+  `firmware-nrf54lm20a/sysbuild.cmake` (before 0.7.0 every image carried
+  `0.0.0`), so it cannot be changed without re-signing. To roll a fleet back,
+  release the old code under a new, higher version. MCUboot's own revert of an
+  unconfirmed test image does not go through this check.
+* **END is the commit point.** Once STATUS reads `done`, the pending-upgrade
+  marker is in flash and the next reset of any kind boots the new image, so
+  ABORT is refused (`error` = `0x11`, state stays `done`) and the node reboots as
+  announced. Before 0.7.0 ABORT cancelled the reboot but not the upgrade, which
+  then installed itself at some unrelated later reset.
 
 This health gate proves that the image can boot, sample, and advertise; it cannot
 prove that a future central can discover and complete another OTA session. A
@@ -186,7 +223,11 @@ Confirmation is attempted at most once per boot so a persistent trailer-write
 failure cannot cause periodic flash writes indefinitely.
 
 To bound how long an unhealthy image can run before it rolls back, a test image
-arms a confirmation deadline at boot (`OTA_CONFIRM_DEADLINE_MS`, 120 s). If it has
+arms a confirmation deadline at boot (`OTA_CONFIRM_DEADLINE_MS`, 120 s). Since
+0.7.0 the deadline and the hardware watchdog are both armed at the very start of
+`main()`, before the regulator and Bluetooth initialisation they protect, so an
+image that hangs there is reset (and reverted) too. A test image whose watchdog
+failed to start is never confirmed. If it has
 not confirmed within that window — radio never came up, the main loop wedged in a
 sensor driver, or the trailer write kept failing — it reboots so MCUboot reverts
 to the previous image, rather than running unconfirmed until the next unrelated
@@ -248,8 +289,8 @@ Where it stops tells you which of these you have:
    or pairing problem — check that the node's identity address matches the slot
    the relay is targeting.
 
-2. **`connected` then `connection not armed; disconnecting`.** The central
-   connected but never sent BEGIN within six seconds. The relay reached the node
+2. **`connected` then `connection not claimed; disconnecting`.** The central
+   connected but never sent BEGIN within ten seconds. The relay reached the node
    and gave up, usually because the release row or the download was missing on
    the backend side.
 
@@ -354,14 +395,20 @@ python bootloader/mcuboot/scripts/imgtool.py keygen \
   -k /secure/hiveinside-signing.pem -t rsa-2048
 west build --pristine=always --sysbuild \
   -b xiao_nrf54lm20a/nrf54lm20a/cpuapp -d build firmware-nrf54lm20a -- \
-  -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=/secure/hiveinside-signing.pem
+  -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"/secure/hiveinside-signing.pem\"
 ```
+
+The escaped quotes are required: the option is a Kconfig string, and without
+them sysbuild reports a malformed string literal and aborts the configure step.
 
 Keep the key out of build logs, archive its matching public key and the recovery
 procedure, and provision the `HIVEINSIDE_SIGNING_KEY_PEM` GitHub Actions secret
 before running `.github/workflows/release.yml`; that workflow now refuses to
 produce artifacts without it and verifies MCUboot selected it. Changing the key
 later requires an SWD recovery image whose MCUboot contains the new public key.
+That also applies to every node provisioned from a release up to v0.6: those
+bootloaders trust the public development key and need SWD re-provisioning (see
+[flashing.md](flashing.md#releases-up-to-v06-trust-the-public-development-key)).
 
 For every release:
 
@@ -383,7 +430,9 @@ For every release:
    is broken.
 
 Steps 1 and 3 are mechanised: `.github/workflows/release.yml` requires the
-project-owned signing-key secret, builds both
+project-owned signing-key secret, checks that the built bootloader embeds that
+key and no MCUboot development key, verifies each OTA payload's signature,
+records the key fingerprint in `manifest.txt`, builds both
 variants pristine on a tag, publishes the version-stamped payload together with
 a `manifest.txt` carrying each payload's byte size and CRC-32, and attaches the
 frozen west manifest and both images' Kconfig so the build can be reproduced.

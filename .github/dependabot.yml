@@ -1,0 +1,13 @@
+# The workflows pin every action to a reviewed commit SHA, so a moved or
+# compromised tag cannot change what runs next to the signing key. Dependabot
+# keeps those pins current through ordinary pull requests that CI checks and a
+# person reviews before merge.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

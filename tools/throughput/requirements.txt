@@ -1,0 +1,3 @@
+# Host tooling for ble_throughput.py, pinned so a bench run is reproducible.
+# Python 3.10 or newer.  pip install -r tools/throughput/requirements.txt
+bleak==3.0.2

@@ -32,8 +32,18 @@ The FFT bands are the ecosystem-shared bands:
 - **Acoustic (dBFS):** sub-bass `50–150 Hz`, hum `150–300 Hz`, piping
   `300–550 Hz`, stress `550–1500 Hz`, high `1500–3000 Hz`.
 
+A band value is the band's amplitude: a sinusoid of peak amplitude *A* inside a
+band reads *A* (in mg, or as 20·log10(*A*) dBFS), and broadband content reads its
+in-band energy in the same units. **Firmware 0.7.0 changed the scale:** earlier
+firmware, like HiveScale, left the Hann window's noise bandwidth in, which read
+every band 1.76 dB high (×1.22 in mg). Thresholds tuned on older data need the
+same correction; the firmware version in the scan response's identity record
+tells the two apart.
+
 Each group prints `n/a` when its sensor is missing or the read failed that
-cycle, so a partial board still gives a useful readout.
+cycle, so a partial board still gives a useful readout. A capture that is cut
+short — fewer than the full 1024 accelerometer samples or 8000 microphone
+frames — is reported the same way rather than as a quieter hive.
 
 ## BLE data transfer
 

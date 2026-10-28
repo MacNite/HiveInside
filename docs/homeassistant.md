@@ -3,9 +3,11 @@
 HiveInside broadcasts its measurement as a **BLE manufacturer-data
 advertisement** in a HiveHub-specific format — it is not a BTHome broadcaster
 and it exposes **no measurement GATT characteristic**, so nothing about it is
-auto-discovered by Home Assistant. The only connectable GATT service on the
-device is the firmware-over-BLE service (see [`ota-over-ble.md`](ota-over-ble.md)),
-which carries no sensor data.
+auto-discovered by Home Assistant. The connectable GATT services on the device
+are firmware-over-BLE (see [`ota-over-ble.md`](ota-over-ble.md)) and the
+authenticated on-request audio service (see
+[`audio-over-ble.md`](audio-over-ble.md)); neither carries the periodic sensor
+data.
 
 There are two supported ways to get its data into Home Assistant.
 

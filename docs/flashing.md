@@ -99,6 +99,39 @@ plus an SWD recovery path. Signing is currently the trust boundary because the
 unencrypted OTA GATT writes have no HMAC; the filter-accept-list TODO remains in
 `ota_init()` pending coordinated HiveHub bonding support.
 
+`manifest.txt` also records the SHA-256 fingerprint of the public key the
+release's bootloader trusts. The release workflow checks the bootloader's bytes,
+not just its configuration: it fails unless MCUboot embeds the deployment key and
+none of MCUboot's published development keys.
+
+### Releases up to v0.6 trust the public development key
+
+Every factory image published **up to and including v0.6** (firmware 0.6.2) was
+built before the release workflow required a project key. Its bootloader trusts
+MCUboot's public development key, so a node flashed from one accepts an OTA image
+signed by anybody — the matching private key ships with MCUboot.
+
+An OTA cannot fix this: OTA replaces the application, never the bootloader, and a
+node with a development-key bootloader rejects images signed with the project
+key. Re-provision such nodes over SWD with a newer `-factory.hex` (above). To
+check which key a node or an image trusts, read the boot partition back and run
+the checker shipped in `tools/release/`:
+
+```bash
+openocd -f <board-openocd.cfg-with-the-RRAM-fix> \
+  -c init -c "targets nrf54lm20a.cpu" -c "reset halt" \
+  -c "dump_image boot.bin 0x0 0x10000" -c shutdown
+
+pip install imgtool intelhex
+python3 tools/release/check_bootloader_key.py \
+  --key <project-public-key.pem> --dev-keys <west-topdir>/bootloader/mcuboot \
+  boot.bin                              # or a release's -factory.hex
+```
+
+It prints the trusted key's fingerprint (compare it with `manifest.txt`) and fails
+if a development key is embedded. Without a MCUboot checkout, omit `--dev-keys`
+and check only that `--key` is found.
+
 ### If the board does not come up
 
 The troubleshooting further down this document applies unchanged — start at

@@ -42,8 +42,8 @@
  * stamped artifact name disagree with the bytes on the air. Bump it here.
  */
 #define HIVEINSIDE_FW_VERSION_MAJOR 0
-#define HIVEINSIDE_FW_VERSION_MINOR 6
-#define HIVEINSIDE_FW_VERSION_PATCH 3
+#define HIVEINSIDE_FW_VERSION_MINOR 7
+#define HIVEINSIDE_FW_VERSION_PATCH 0
 
 #define HIVEINSIDE_STRINGIFY_(value) #value
 #define HIVEINSIDE_STRINGIFY(value) HIVEINSIDE_STRINGIFY_(value)
@@ -71,7 +71,15 @@
  * factory erase.
  */
 #ifndef HIVEINSIDE_DEVICE_NAME
+#if defined(ENABLE_THROUGHPUT_SPIKE) && ENABLE_THROUGHPUT_SPIKE
+/* A measurement image must be recognisable from a scan alone: it carries an
+ * extra unauthenticated service and must never be mistaken for, or left in
+ * place of, a deployment image. Still matches the "HiveInside" prefix the
+ * throughput tool scans for. */
+#define HIVEINSIDE_DEVICE_NAME "HiveInside-TP"
+#else
 #define HIVEINSIDE_DEVICE_NAME "HiveInside"
+#endif
 #endif
 
 /* "-" plus four hex digits, appended to HIVEINSIDE_DEVICE_NAME. */
@@ -169,8 +177,8 @@
 /* ── OTA stall timeout ─────────────────────────────────────────────────────
  *
  * How long a transfer may go without a single DATA write before the node
- * abandons it. An in-progress transfer holds the sensor loop (ota_is_active()
- * gates it) and, because the node is connected, stops it advertising — so a
+ * abandons it. An in-progress transfer holds the sensor loop (it owns link.c's
+ * session gate) and, because the node is connected, stops it advertising — so a
  * relay that opens a session and then goes quiet takes the node off the air
  * completely. The watchdog cannot help: the OTA path feeds it deliberately,
  * since a genuine upload takes minutes.
@@ -183,6 +191,32 @@
  */
 #ifndef HIVE_OTA_STALL_TIMEOUT_MS
 #define HIVE_OTA_STALL_TIMEOUT_MS 30000U
+#endif
+
+/* ── OTA session bounds ───────────────────────────────────────────────────
+ *
+ * The OTA service accepts any central (pairing waits on HiveHub bonding
+ * support), so these bound what a peer that is not a relay can cost.
+ *
+ * HIVE_OTA_SESSION_TIMEOUT_MS caps a whole transfer from BEGIN, however steadily
+ * it trickles in: a full slot at the relay's slowest observed ~1 kB/s takes
+ * under eight minutes.
+ *
+ * After HIVE_OTA_MAX_FAILED_SESSIONS transfers in a row end in an error (bad
+ * size or CRC, flash error, stall, timeout, disconnect mid-transfer), BEGIN is
+ * refused for HIVE_OTA_FAILURE_COOLDOWN_MS. A successful END resets the count.
+ * That keeps a peer from holding the node off the air or cycling slot 1
+ * through writes indefinitely, at the price of a relay that genuinely failed
+ * three times waiting out the cooldown.
+ */
+#ifndef HIVE_OTA_SESSION_TIMEOUT_MS
+#define HIVE_OTA_SESSION_TIMEOUT_MS 600000U
+#endif
+#ifndef HIVE_OTA_MAX_FAILED_SESSIONS
+#define HIVE_OTA_MAX_FAILED_SESSIONS 3U
+#endif
+#ifndef HIVE_OTA_FAILURE_COOLDOWN_MS
+#define HIVE_OTA_FAILURE_COOLDOWN_MS 600000U
 #endif
 
 /* ── BLE throughput spike (issue #71, phase 0e — TEMPORARY) ───────────────
@@ -274,6 +308,17 @@
 #include <zephyr/sys/util.h>
 BUILD_ASSERT(HIVE_AUDIO_RING_BYTES >= MIC_SAMPLE_RATE,
 	     "audio ring must hold at least 0.5 seconds of PCM16");
+/* fft.c's radix-2 transform needs a power of two of at least 8 (the same test
+ * as HIVE_FFT_LENGTH_VALID), and the acoustic FFT is filled from the level
+ * capture, so it cannot be longer than that. */
+BUILD_ASSERT(ACCEL_SAMPLE_COUNT >= 8 &&
+	     (ACCEL_SAMPLE_COUNT & (ACCEL_SAMPLE_COUNT - 1)) == 0,
+	     "ACCEL_SAMPLE_COUNT must be a power of two, at least 8");
+BUILD_ASSERT(MIC_FFT_SAMPLE_COUNT >= 8 &&
+	     (MIC_FFT_SAMPLE_COUNT & (MIC_FFT_SAMPLE_COUNT - 1)) == 0,
+	     "MIC_FFT_SAMPLE_COUNT must be a power of two, at least 8");
+BUILD_ASSERT(MIC_FFT_SAMPLE_COUNT <= MIC_SAMPLE_FRAMES,
+	     "the acoustic FFT is filled from the MIC_SAMPLE_FRAMES level capture");
 
 /* Acoustic FFT bands (Hz), identical to HiveScale/HiveHub. */
 #define MIC_BAND_SUBBASS_LO 50   /*   50–150 Hz structural / low rumble */

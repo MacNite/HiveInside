@@ -239,8 +239,13 @@ void accel_read(struct measurement *m)
 	}
 	power_down();
 
-	if (n < 64) {
-		printk("[ACCEL] only %u samples; skipping\n", (unsigned)n);
+	if (n < ACCEL_SAMPLE_COUNT) {
+		/* A short capture is a sensor fault, not a quiet hive. Zero-padding
+		 * it under a full-length window weighted the samples that did
+		 * arrive by the window's near-zero start and published a valid
+		 * looking, far too low reading. */
+		printk("[ACCEL] only %u of %u samples; skipping\n", (unsigned)n,
+		       (unsigned)ACCEL_SAMPLE_COUNT);
 		return;
 	}
 
@@ -274,10 +279,6 @@ void accel_read(struct measurement *m)
 		fft_re[i] = ac;
 		fft_im[i] = 0.0f;
 	}
-	for (size_t i = n; i < ACCEL_SAMPLE_COUNT; i++) {
-		fft_re[i] = 0.0f;
-		fft_im[i] = 0.0f;
-	}
 
 	m->accel_sample_count = (uint16_t)n;
 	m->accel_rms_mg = sqrtf(sum_sq / (float)n);
@@ -286,7 +287,7 @@ void accel_read(struct measurement *m)
 	hive_fft_hann(fft_re, ACCEL_SAMPLE_COUNT);
 	hive_fft_magnitude(fft_re, fft_im, ACCEL_SAMPLE_COUNT);
 
-	const float norm = ((float)ACCEL_SAMPLE_COUNT / 2.0f) * 0.5f;
+	const float norm = hive_fft_hann_norm(ACCEL_SAMPLE_COUNT);
 	const float fs = (float)odr_hz;
 
 	m->accel_band_swarm_mg = hive_fft_band_amplitude(

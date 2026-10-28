@@ -8,6 +8,7 @@
 
 #if ENABLE_AUDIO
 
+#include <errno.h>
 #include <math.h>
 #include <psa/crypto.h>
 #include <string.h>
@@ -47,22 +48,28 @@ static uint32_t bytes_sent, dropped_bytes, running_crc, clipped, samples;
 static uint16_t seq, duration_ds;
 static int8_t gain_db;
 static float gain_factor;
-static int64_t started_ms, deadline_ms;
+static int64_t started_ms, finished_ms, deadline_ms;
 static bool subscribed;
-static atomic_t stopping, capture_done, dropped_pending;
+/* The connection a session was started on. Its workers stop as soon as that
+ * connection is gone, even if a new central has connected in the meantime. */
+static uint32_t session_gen;
+static atomic_t session_active, stopping, capture_done, dropped_pending;
 #define AUDIO_RING_BLOCKS (HIVE_AUDIO_RING_BYTES / AUDIO_BLOCK_BYTES)
 static uint8_t audio_ring[AUDIO_RING_BLOCKS][AUDIO_BLOCK_BYTES];
 static uint16_t ring_head, ring_tail, ring_count, ring_offset;
 K_MUTEX_DEFINE(audio_ring_lock);
+/* Counters read by STATUS while the workers update them. */
+static struct k_spinlock stats_lock;
 K_SEM_DEFINE(audio_capture_start, 0, 1);
 K_SEM_DEFINE(audio_tx_start, 0, 1);
 K_SEM_DEFINE(audio_data_ready, 0, 1);
 K_SEM_DEFINE(audio_credits, AUDIO_CREDITS, AUDIO_CREDITS);
 
-struct tx_packet { uint8_t data[AUDIO_HEADER_LEN + AUDIO_PCM_MAX]; bool busy; };
-static struct tx_packet packets[AUDIO_CREDITS];
-static struct k_spinlock packet_lock;
-
+/* bt_gatt_notify_cb() copies the value into its own buffer before returning,
+ * so one staging buffer serves every notification; the credits alone bound
+ * what is in flight. Word alignment keeps the int16_t samples at offset 4
+ * aligned. */
+static uint8_t tx_buf[AUDIO_HEADER_LEN + AUDIO_PCM_MAX] __aligned(4);
 static ssize_t ctrl_write(struct bt_conn *, const struct bt_gatt_attr *,
 			  const void *, uint16_t, uint16_t, uint8_t);
 static ssize_t status_read(struct bt_conn *, const struct bt_gatt_attr *,
@@ -104,24 +111,35 @@ static void rotate_nonce(void)
 
 static void fill_status(uint8_t v[AUDIO_STATUS_LEN])
 {
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
+	int64_t until = finished_ms > 0 ? finished_ms : k_uptime_get();
+
 	v[0] = state; v[1] = error;
 	memcpy(&v[2], nonce, sizeof(nonce));
 	sys_put_le32(bytes_sent, &v[10]);
-	uint32_t elapsed = started_ms > 0 ? (uint32_t)(k_uptime_get() - started_ms) : 0;
+	/* Frozen at the end of a session, so DONE reports its real duration. */
+	uint32_t elapsed = started_ms > 0 ? (uint32_t)(until - started_ms) : 0;
 	sys_put_le32(elapsed, &v[14]);
 	sys_put_le32(dropped_bytes, &v[18]);
 	sys_put_le32(running_crc, &v[22]);
 	sys_put_le16(MIC_SAMPLE_RATE, &v[26]);
 	v[28] = format;
 	v[29] = samples ? (uint8_t)MIN(100U, (clipped * 100U) / samples) : 0;
+	k_spin_unlock(&stats_lock, key);
 }
 
 static void publish_status(void)
 {
 	uint8_t value[AUDIO_STATUS_LEN];
+	struct bt_conn *conn = link_conn_get(link_generation());
+
+	if (conn == NULL) {
+		return;
+	}
 	fill_status(value);
-	(void)bt_gatt_notify(link_conn(), &audio_service.attrs[AUDIO_ATTR_STATUS],
+	(void)bt_gatt_notify(conn, &audio_service.attrs[AUDIO_ATTR_STATUS],
 			     value, sizeof(value));
+	bt_conn_unref(conn);
 }
 
 static void set_state(uint8_t value, uint8_t fault)
@@ -174,40 +192,79 @@ static void data_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 	ARG_UNUSED(attr); subscribed = value == BT_GATT_CCC_NOTIFY;
 }
 
-static struct tx_packet *packet_take(void)
-{
-	k_spinlock_key_t key = k_spin_lock(&packet_lock);
-	struct tx_packet *found = NULL;
-	for (size_t i = 0; i < ARRAY_SIZE(packets); i++) {
-		if (!packets[i].busy) { packets[i].busy = true; found = &packets[i]; break; }
-	}
-	k_spin_unlock(&packet_lock, key);
-	return found;
-}
-
 static void sent_cb(struct bt_conn *conn, void *user_data)
 {
-	ARG_UNUSED(conn);
-	k_spinlock_key_t key = k_spin_lock(&packet_lock);
-	((struct tx_packet *)user_data)->busy = false;
-	k_spin_unlock(&packet_lock, key);
+	ARG_UNUSED(conn); ARG_UNUSED(user_data);
 	k_sem_give(&audio_credits);
 }
 
-static int notify_packet(struct tx_packet *packet, size_t pcm_len, uint8_t flags)
+/* Send tx_buf with one credit already taken. A failed send hands the credit
+ * back and leaves the sequence number for the retry. */
+static int notify_data(struct bt_conn *conn, size_t pcm_len, uint8_t flags)
 {
-	sys_put_le16(seq++, packet->data);
-	packet->data[2] = flags; packet->data[3] = 0;
+	sys_put_le16(seq, tx_buf);
+	tx_buf[2] = flags; tx_buf[3] = 0;
 	struct bt_gatt_notify_params params = {
-		.attr = &audio_service.attrs[AUDIO_ATTR_DATA], .data = packet->data,
+		.attr = &audio_service.attrs[AUDIO_ATTR_DATA], .data = tx_buf,
 		.len = pcm_len + AUDIO_HEADER_LEN, .func = sent_cb,
-		.user_data = packet,
 	};
-	int rc = bt_gatt_notify_cb(link_conn(), &params);
+	int rc = bt_gatt_notify_cb(conn, &params);
 	if (rc != 0) {
-		packet->busy = false; k_sem_give(&audio_credits);
+		k_sem_give(&audio_credits);
+	} else {
+		seq++;
 	}
 	return rc;
+}
+
+/* notify_data(), retrying while the host is merely out of buffers, which a
+ * credit does not fully rule out. Bounded by the stall timeout. */
+static int notify_data_retry(struct bt_conn *conn, size_t pcm_len, uint8_t flags)
+{
+	int64_t give_up = k_uptime_get() + HIVE_AUDIO_STALL_TIMEOUT_MS;
+	int rc;
+
+	while ((rc = notify_data(conn, pcm_len, flags)) == -ENOMEM &&
+	       k_uptime_get() < give_up) {
+		k_sleep(K_MSEC(5));
+		if (k_sem_take(&audio_credits,
+			       K_MSEC(HIVE_AUDIO_STALL_TIMEOUT_MS)) != 0) {
+			return -EAGAIN;
+		}
+	}
+	return rc;
+}
+
+/* True while the connection the session was started on is still up. */
+static bool session_link_alive(void)
+{
+	struct bt_conn *conn = link_conn_get(session_gen);
+
+	if (conn == NULL) {
+		return false;
+	}
+	bt_conn_unref(conn);
+	return true;
+}
+
+/* The one place a session ends, reached only after both workers have stopped
+ * touching the PDM controller and the ring. The session gate is the last thing
+ * released, so neither the measurement loop nor a new START can begin before
+ * the sensor rail reference is back and the old PCM is gone. */
+static void session_finish(uint8_t final_state, uint8_t fault)
+{
+	(void)power_sensor_rail_disable();
+	k_mutex_lock(&audio_ring_lock, K_FOREVER);
+	ring_head = ring_tail = ring_count = ring_offset = 0;
+	memset(audio_ring, 0, sizeof(audio_ring));
+	k_mutex_unlock(&audio_ring_lock);
+	/* A connection that replaced the session's own has already been given a
+	 * fresh ARMED state and nonce; the old session's ending is not its news. */
+	if (link_generation() == session_gen) {
+		set_state(final_state, fault);
+	}
+	atomic_clear(&session_active);
+	link_release(LINK_OWNER_AUDIO);
 }
 
 static void capture_thread_fn(void *a, void *b, void *c)
@@ -217,26 +274,36 @@ static void capture_thread_fn(void *a, void *b, void *c)
 		k_sem_take(&audio_capture_start, K_FOREVER);
 		/* link_claim() transferred the session gate to this thread.  Keep
 		 * regulator settling and PDM setup out of the GATT write callback. */
-		if (power_sensor_rail_enable() != 0 || mic_stream_start() != 0) {
-			(void)power_sensor_rail_disable();
-			set_state(AUDIO_ARMED, AUDIO_ERR_MIC);
+		if (power_sensor_rail_enable() != 0) {
+			/* No reference was taken, so there is none to return. */
+			atomic_clear(&session_active);
+			if (link_generation() == session_gen) {
+				set_state(AUDIO_ARMED, AUDIO_ERR_MIC);
+			}
 			link_release(LINK_OWNER_AUDIO);
+			continue;
+		}
+		if (mic_stream_start() != 0) {
+			session_finish(AUDIO_ARMED, AUDIO_ERR_MIC);
 			continue;
 		}
 		set_state(AUDIO_STREAMING, 0);
 		k_sem_give(&audio_tx_start);
-		while (!atomic_get(&stopping) && link_conn() != NULL &&
+		while (!atomic_get(&stopping) && session_link_alive() &&
 		       k_uptime_get() < deadline_ms) {
 			void *block; uint32_t size;
 			if (mic_stream_read(&block, &size, 250) != 0) continue;
 			k_mutex_lock(&audio_ring_lock, K_FOREVER);
 			if (ring_count == AUDIO_RING_BLOCKS) {
 				/* Discard exactly one capture block. Dropping a byte range
-				 * could manufacture a false sample at the splice. */
+				 * could manufacture a false sample at the splice. Only
+				 * its unsent part is lost. */
+				k_spinlock_key_t key = k_spin_lock(&stats_lock);
+				dropped_bytes += AUDIO_BLOCK_BYTES - ring_offset;
+				k_spin_unlock(&stats_lock, key);
 				ring_tail = (ring_tail + 1U) % AUDIO_RING_BLOCKS;
 				ring_count--;
 				ring_offset = 0;
-				dropped_bytes += AUDIO_BLOCK_BYTES;
 				atomic_set(&dropped_pending, 1);
 			}
 			memcpy(audio_ring[ring_head], block, MIN(size, AUDIO_BLOCK_BYTES));
@@ -255,66 +322,142 @@ static void capture_thread_fn(void *a, void *b, void *c)
 K_THREAD_DEFINE(audio_capture_thread, 2048, capture_thread_fn,
 		NULL, NULL, NULL, 6, 0, 0);
 
+/* Move up to one notification's worth of the ring into tx_buf, apply the gain
+ * and return the byte count, or 0 when the ring is empty. */
+static size_t stage_pcm(size_t limit)
+{
+	size_t amount = 0;
+
+	k_mutex_lock(&audio_ring_lock, K_FOREVER);
+	if (ring_count != 0) {
+		amount = MIN(limit, (size_t)(AUDIO_BLOCK_BYTES - ring_offset));
+		memcpy(&tx_buf[AUDIO_HEADER_LEN], &audio_ring[ring_tail][ring_offset],
+		       amount);
+		ring_offset += amount;
+		if (ring_offset == AUDIO_BLOCK_BYTES) {
+			ring_offset = 0;
+			ring_tail = (ring_tail + 1U) % AUDIO_RING_BLOCKS;
+			ring_count--;
+		}
+	}
+	k_mutex_unlock(&audio_ring_lock);
+
+	int16_t *pcm = (int16_t *)&tx_buf[AUDIO_HEADER_LEN];
+	uint32_t clipped_now = 0;
+	for (size_t i = 0; i < amount / 2; i++) {
+		float scaled = (float)pcm[i] * gain_factor;
+		if (scaled > INT16_MAX) { pcm[i] = INT16_MAX; clipped_now++; }
+		else if (scaled < INT16_MIN) { pcm[i] = INT16_MIN; clipped_now++; }
+		else pcm[i] = (int16_t)scaled;
+	}
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
+	clipped += clipped_now;
+	samples += amount / 2;
+	k_spin_unlock(&stats_lock, key);
+	return amount;
+}
+
+static bool ring_empty(void)
+{
+	k_mutex_lock(&audio_ring_lock, K_FOREVER);
+	bool empty = ring_count == 0;
+	k_mutex_unlock(&audio_ring_lock);
+	return empty;
+}
+
+/* Bytes still buffered when a session is abandoned; they count as dropped. */
+static uint32_t ring_unsent(void)
+{
+	k_mutex_lock(&audio_ring_lock, K_FOREVER);
+	uint32_t unsent = ring_count == 0 ? 0 :
+		(uint32_t)ring_count * AUDIO_BLOCK_BYTES - ring_offset;
+	k_mutex_unlock(&audio_ring_lock);
+	return unsent;
+}
+
+/* Stream the ring until capture has finished and the ring is drained.
+ * Returns 0, or the fault that abandoned the session: the session's
+ * connection went away, the link stopped returning credits, or a notification
+ * was refused. Every wait in here is bounded. */
+static uint8_t stream_session(void)
+{
+	for (;;) {
+		if (!session_link_alive()) {
+			return AUDIO_ERR_STALLED;
+		}
+		if (ring_empty()) {
+			if (atomic_get(&capture_done)) {
+				return 0;
+			}
+			(void)k_sem_take(&audio_data_ready, K_MSEC(100));
+			continue;
+		}
+		if (k_sem_take(&audio_credits,
+			       K_MSEC(HIVE_AUDIO_STALL_TIMEOUT_MS)) != 0) {
+			return AUDIO_ERR_STALLED;
+		}
+		struct bt_conn *conn = link_conn_get(session_gen);
+		uint16_t mtu = conn ? bt_gatt_get_mtu(conn) : 0;
+		size_t limit = MIN((size_t)AUDIO_PCM_MAX,
+				   mtu > 7 ? (size_t)(mtu - 7) : 0) & ~(size_t)1;
+		if (limit == 0) {
+			k_sem_give(&audio_credits);
+			if (conn) bt_conn_unref(conn);
+			return AUDIO_ERR_STALLED;
+		}
+		size_t amount = stage_pcm(limit);
+		uint8_t flags = atomic_cas(&dropped_pending, 1, 0) ? BIT(1) : 0;
+		int rc = notify_data_retry(conn, amount, flags);
+		bt_conn_unref(conn);
+		if (rc != 0) {
+			/* The staged bytes never left; account them as dropped. */
+			k_spinlock_key_t key = k_spin_lock(&stats_lock);
+			dropped_bytes += amount;
+			k_spin_unlock(&stats_lock, key);
+			return subscribed ? AUDIO_ERR_STALLED : AUDIO_ERR_NO_SUB;
+		}
+		/* CRC and byte count describe the same stream: the bytes handed
+		 * to the link. */
+		k_spinlock_key_t key = k_spin_lock(&stats_lock);
+		running_crc = crc32_ieee_update(running_crc,
+						&tx_buf[AUDIO_HEADER_LEN], amount);
+		bytes_sent += amount;
+		k_spin_unlock(&stats_lock, key);
+	}
+}
+
 static void tx_thread_fn(void *a, void *b, void *c)
 {
 	ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
 	for (;;) {
 		k_sem_take(&audio_tx_start, K_FOREVER);
-		for (;;) {
-			k_mutex_lock(&audio_ring_lock, K_FOREVER);
-			uint32_t available = ring_count == 0 ? 0 :
-				AUDIO_BLOCK_BYTES - ring_offset;
-			k_mutex_unlock(&audio_ring_lock);
-			if (available == 0) {
-				if (atomic_get(&capture_done)) break;
-				(void)k_sem_take(&audio_data_ready, K_MSEC(100));
-				continue;
-			}
-			if (k_sem_take(&audio_credits,
-				       K_MSEC(HIVE_AUDIO_STALL_TIMEOUT_MS)) != 0) {
-				error = AUDIO_ERR_STALLED; atomic_set(&stopping, 1); continue;
-			}
-			struct tx_packet *packet = packet_take();
-			if (packet == NULL) { k_sem_give(&audio_credits); continue; }
-			uint16_t mtu = link_conn() ? bt_gatt_get_mtu(link_conn()) : 0;
-			size_t amount = MIN((size_t)AUDIO_PCM_MAX,
-					    mtu > 7 ? (size_t)(mtu - 7) : 0);
-			amount &= ~1U;
-			if (amount == 0) { packet->busy = false; k_sem_give(&audio_credits); atomic_set(&stopping, 1); continue; }
-			k_mutex_lock(&audio_ring_lock, K_FOREVER);
-			amount = MIN(amount, available);
-			memcpy(&packet->data[4], &audio_ring[ring_tail][ring_offset], amount);
-			ring_offset += amount;
-			if (ring_offset == AUDIO_BLOCK_BYTES) {
-				ring_offset = 0;
-				ring_tail = (ring_tail + 1U) % AUDIO_RING_BLOCKS;
-				ring_count--;
-			}
-			k_mutex_unlock(&audio_ring_lock);
-			int16_t *pcm = (int16_t *)&packet->data[4];
-			for (size_t i = 0; i < amount / 2; i++) {
-				float scaled = (float)pcm[i] * gain_factor;
-				if (scaled > INT16_MAX) { pcm[i] = INT16_MAX; clipped++; }
-				else if (scaled < INT16_MIN) { pcm[i] = INT16_MIN; clipped++; }
-				else pcm[i] = (int16_t)scaled;
-				samples++;
-			}
-			running_crc = crc32_ieee_update(running_crc, &packet->data[4], amount);
-			uint8_t flags = atomic_cas(&dropped_pending, 1, 0) ? BIT(1) : 0;
-			if (notify_packet(packet, amount, flags) == 0) bytes_sent += amount;
-			else atomic_set(&stopping, 1);
+		uint8_t fault = stream_session();
+
+		/* Stop capture (a no-op if it already ended) and wait for it to
+		 * let go of the PDM controller. Its reads time out after 250 ms,
+		 * so this wait is short and bounded. */
+		atomic_set(&stopping, 1);
+		while (!atomic_get(&capture_done)) {
+			(void)k_sem_take(&audio_data_ready, K_MSEC(100));
 		}
-		if (link_conn() != NULL && subscribed &&
-		    k_sem_take(&audio_credits, K_MSEC(HIVE_AUDIO_STALL_TIMEOUT_MS)) == 0) {
-			struct tx_packet *packet = packet_take();
-			if (packet != NULL) (void)notify_packet(packet, 0, BIT(0));
-			else k_sem_give(&audio_credits);
+		if (fault != 0) {
+			uint32_t unsent = ring_unsent();
+			k_spinlock_key_t key = k_spin_lock(&stats_lock);
+			dropped_bytes += unsent;
+			k_spin_unlock(&stats_lock, key);
+		} else {
+			struct bt_conn *conn = link_conn_get(session_gen);
+			if (conn != NULL && subscribed &&
+			    k_sem_take(&audio_credits,
+				       K_MSEC(HIVE_AUDIO_STALL_TIMEOUT_MS)) == 0) {
+				(void)notify_data(conn, 0, BIT(0));
+			}
+			if (conn != NULL) bt_conn_unref(conn);
 		}
-		(void)power_sensor_rail_disable();
-		state = AUDIO_DONE;
-		rotate_nonce();
-		publish_status();
-		link_release(LINK_OWNER_AUDIO);
+		k_spinlock_key_t key = k_spin_lock(&stats_lock);
+		finished_ms = k_uptime_get();
+		k_spin_unlock(&stats_lock, key);
+		session_finish(AUDIO_DONE, fault);
 	}
 }
 K_THREAD_DEFINE(audio_tx_thread, 3072, tx_thread_fn, NULL, NULL, NULL, 7, 0, 0);
@@ -326,10 +469,17 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	ARG_UNUSED(attr); ARG_UNUSED(flags);
 	const uint8_t *p = buf;
 	if (offset != 0 || len == 0) return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+	/* STOP cancels the session whether it is still ARMED (capture not yet
+	 * running) or already STREAMING. */
 	if (p[0] == AUDIO_OP_STOP && len == 1) {
-		if (state == AUDIO_STREAMING) atomic_set(&stopping, 1);
+		if (atomic_get(&session_active)) {
+			atomic_set(&stopping, 1);
+			k_sem_give(&audio_data_ready);
+		}
 		return len;
 	}
+	/* A refused request reports its error but never changes the state: a
+	 * retried or malformed START must not make a live session look idle. */
 	if (p[0] != AUDIO_OP_START || len != 14) {
 		set_state(state, AUDIO_ERR_PARAM);
 		return len;
@@ -337,16 +487,23 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	if (p[3] != 0) { set_state(state, AUDIO_ERR_PARAM); return len; }
 	if (p[4] != 0) { set_state(state, AUDIO_ERR_FORMAT); return len; }
 	if (!authenticate(p)) {
-		rotate_nonce(); set_state(AUDIO_ARMED, AUDIO_ERR_AUTH); return len;
+		rotate_nonce(); set_state(state, AUDIO_ERR_AUTH); return len;
 	}
-	if (!subscribed) { set_state(AUDIO_ARMED, AUDIO_ERR_NO_SUB); return len; }
-	if (!link_claim(LINK_OWNER_AUDIO)) { set_state(AUDIO_ARMED, AUDIO_ERR_BUSY); return len; }
+	if (!subscribed) { set_state(state, AUDIO_ERR_NO_SUB); return len; }
+	if (!link_claim(LINK_OWNER_AUDIO)) { set_state(state, AUDIO_ERR_BUSY); return len; }
 
+	/* Each nonce authorizes exactly one session. */
+	rotate_nonce();
+	session_gen = link_generation();
+	atomic_set(&session_active, 1);
 	duration_ds = sys_get_le16(&p[1]); format = p[4];
 	gain_db = CLAMP((int8_t)p[5], -20, 20);
 	gain_factor = powf(10.0f, (float)gain_db / 20.0f);
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
 	bytes_sent = dropped_bytes = running_crc = clipped = samples = 0;
 	started_ms = k_uptime_get();
+	finished_ms = 0;
+	k_spin_unlock(&stats_lock, key);
 	uint32_t requested_ms = duration_ds ? (uint32_t)duration_ds * 100U :
 					 HIVE_AUDIO_MAX_SECONDS * 1000U;
 	deadline_ms = started_ms + MIN(requested_ms,
@@ -354,6 +511,7 @@ static ssize_t ctrl_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	atomic_clear(&stopping); atomic_clear(&capture_done);
 	atomic_clear(&dropped_pending);
 	ring_head = ring_tail = ring_count = ring_offset = 0;
+	k_sem_reset(&audio_data_ready);
 	k_sem_reset(&audio_credits);
 	for (int i = 0; i < AUDIO_CREDITS; i++) k_sem_give(&audio_credits);
 	struct bt_le_conn_param cp = { .interval_min = HIVE_AUDIO_CONN_INTERVAL_UNITS,
@@ -383,7 +541,16 @@ void audio_init(void)
 
 void audio_link_connected(void)
 {
-	subscribed = false; started_ms = 0; rotate_nonce(); set_state(AUDIO_ARMED, 0);
+	/* A session from the previous connection may still be shutting down; it
+	 * owns its counters until session_finish(), so only the per-connection
+	 * view is reset here. */
+	subscribed = false; rotate_nonce();
+	if (!atomic_get(&session_active)) {
+		k_spinlock_key_t key = k_spin_lock(&stats_lock);
+		started_ms = finished_ms = 0;
+		k_spin_unlock(&stats_lock, key);
+	}
+	set_state(AUDIO_ARMED, 0);
 }
 
 void audio_link_disconnected(void)

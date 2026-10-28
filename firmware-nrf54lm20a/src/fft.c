@@ -53,10 +53,24 @@ static void fft_forward(float *re, float *im, size_t n)
 
 void hive_fft_magnitude(float *re, float *im, size_t n)
 {
+	if (!HIVE_FFT_LENGTH_VALID(n)) {
+		/* The butterflies assume a power of two and would run past the
+		 * arrays otherwise. */
+		for (size_t k = 0; k <= n / 2; k++) {
+			re[k] = 0.0f;
+		}
+		return;
+	}
 	fft_forward(re, im, n);
 	for (size_t k = 0; k <= n / 2; k++) {
 		re[k] = sqrtf(re[k] * re[k] + im[k] * im[k]);
 	}
+}
+
+float hive_fft_hann_norm(size_t n)
+{
+	/* Hann: coherent gain 0.5, equivalent noise bandwidth 1.5 bins. */
+	return ((float)n / 2.0f) * 0.5f * sqrtf(1.5f);
 }
 
 float hive_fft_band_amplitude(const float *mag, size_t n, float sample_rate,

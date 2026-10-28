@@ -127,17 +127,24 @@ else
 Upstream may have restructured it — check it by hand before flashing."
 fi
 
-# OpenOCD passes the file name through Tcl, which splits on whitespace.
-if printf '%s' "$image" | grep -q '[[:space:]]'; then
-	cp "$image" "$workdir/image.hex"
-	image="$workdir/image.hex"
-fi
+# OpenOCD evaluates every -c argument as a Tcl script, where spaces, brackets,
+# dollar signs, semicolons and braces in a file name all mean something; shell
+# quoting does not reach that second interpreter. Flash a copy with a name this
+# script chose, and hand Tcl its path as one braced (literal) word. Only a brace
+# or backslash in the temporary directory itself could still break that.
+cp "$image" "$workdir/image.hex"
+tcl_image="$workdir/image.hex"
+case "$tcl_image" in
+*[{}\\]*) die "temporary directory $workdir contains a brace or backslash;
+point TMPDIR at a plain directory." ;;
+esac
+tcl_image="{$tcl_image}"
 
 verify_args=()
 if [ "$verify" -eq 1 ]; then
 	# Read the image back. This is the check that catches the truncation the
 	# fix above prevents, and any half-written flash.
-	verify_args=(-c "reset init" -c "verify_image $image")
+	verify_args=(-c "reset init" -c "verify_image $tcl_image")
 fi
 
 printf 'Flashing %s\n' "$image"
@@ -145,7 +152,7 @@ printf 'Flashing %s\n' "$image"
 	-c "init" \
 	-c "targets nrf54lm20a.cpu" \
 	-c "reset init" \
-	-c "nrf54lm20a-load $image" \
+	-c "nrf54lm20a-load $tcl_image" \
 	"${verify_args[@]}" \
 	-c "reset run" \
 	-c "shutdown"

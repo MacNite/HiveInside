@@ -85,8 +85,8 @@ static float band_energy_dbfs(const float *mag, float lo_hz, float hi_hz,
 			      float norm)
 {
 	/* Parseval sum (no /count) so the value reflects real in-band acoustic
-	 * energy and is comparable between bands of different widths — same
-	 * convention as HiveScale. */
+	 * energy and is comparable between bands of different widths — the
+	 * HiveScale convention, with the window correction described in fft.h. */
 	float amp = hive_fft_band_amplitude(mag, MIC_FFT_SAMPLE_COUNT,
 					    (float)MIC_SAMPLE_RATE, lo_hz,
 					    hi_hz, norm, false);
@@ -119,7 +119,7 @@ static void compute_bands(size_t count, struct measurement *m)
 	hive_fft_hann(fft_re, MIC_FFT_SAMPLE_COUNT);
 	hive_fft_magnitude(fft_re, fft_im, MIC_FFT_SAMPLE_COUNT);
 
-	const float norm = ((float)MIC_FFT_SAMPLE_COUNT / 2.0f) * 0.5f;
+	const float norm = hive_fft_hann_norm(MIC_FFT_SAMPLE_COUNT);
 
 	m->mic_band_sub_bass_dbfs = band_energy_dbfs(fft_re, MIC_BAND_SUBBASS_LO, MIC_BAND_SUBBASS_HI, norm);
 	m->mic_band_hum_dbfs      = band_energy_dbfs(fft_re, MIC_BAND_HUM_LO, MIC_BAND_HUM_HI, norm);
@@ -215,12 +215,12 @@ void mic_read(struct measurement *m)
 				   ? 20.0f * log10f(peak_dev / FULL_SCALE)
 				   : SILENCE_DBFS;
 	m->mic_frames = count;
-	if (fft_count < 64) {
-		/* The MIC flag covers RMS, peak and all five bands. Setting it for a
-		 * short capture left the uncomputed zero-initialized bands looking
-		 * like valid full-scale audio, so reject the whole measurement. */
-		printk("[MIC] only %u FFT samples; skipping\n",
-		       (unsigned)fft_count);
+	if (count < MIC_SAMPLE_FRAMES) {
+		/* The MIC flag covers RMS, peak and all five bands, so a capture
+		 * cut short by a read error is rejected whole rather than reported
+		 * as a quieter hive. */
+		printk("[MIC] only %u of %u frames; skipping\n", (unsigned)count,
+		       (unsigned)MIC_SAMPLE_FRAMES);
 		return;
 	}
 
